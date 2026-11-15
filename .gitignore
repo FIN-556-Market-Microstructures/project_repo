@@ -1,0 +1,8 @@
+itch_parser
+*.o
+out*/
+testdata/
+*.csv
+*.parquet
+*.pcap
+*.pcap.zst
