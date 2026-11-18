@@ -29,4 +29,4 @@ Finding that a predictive advantage disappears after trading costs is also a val
 
 We use GitHub Issues and the project board to assign tasks, track progress, and review work.
 
-For AI-assisted work, we will save prompts, outputs, and manual changes so that the process can be reviewed and reproduced.x
+For AI-assisted work, we will save prompts, outputs, and manual changes so that the process can be reviewed and reproduced.
