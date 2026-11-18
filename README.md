@@ -10,23 +10,24 @@ An order book shows outstanding buy and sell orders at different prices. Order f
 
 ## Research Question
 
-Can order flow imbalance help predict short-term price changes? If so, does the predictive advantage remain after accounting for the bid-ask spread and trading fees?
+Can order flow imbalance help predict short-term price changes? If so, does the predictive advantage remain after accounting for trading costs and execution constraints, including the bid-ask spread, fees, slippage, and latency?
 
 Our price measure is the mid-price: the average of the best available buy price and sell price.
 
 ## Planned Approach
 
-- Create synthetic order book data for one stock to test our code before using real market data.
+- Create synthetic order book data for one stock to test our code before using real market data. The synthetic data generation script is included in the repository so that team members can reproduce the test data.
 - Process the market data in manageable chunks, starting with NVDA.
 - Build order flow imbalance and trade-sign features to measure order activity and buying or selling direction.
 - Start with a simple regression, then compare it with a gradient-boosted model.
 - Test predictions over horizons ranging from milliseconds to a few seconds.
-- Evaluate whether any predictive advantage survives the bid-ask spread and trading fees.
+- Evaluate whether any predictive advantage survives trading costs, slippage, and execution latency.
+- Explore additional order book features and market conditions if time permits.
 
 Finding that a predictive advantage disappears after trading costs is also a valid research result.
 
 ## Team Workflow
 
-We use GitHub Issues and the project board to assign tasks, track progress, and review work.
+We use GitHub Issues and the project board to assign tasks, track progress, and review work. Code changes are submitted through pull requests for review before being merged.
 
 For AI-assisted work, we will save prompts, outputs, and manual changes so that the process can be reviewed and reproduced.
