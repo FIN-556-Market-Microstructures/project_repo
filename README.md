@@ -26,6 +26,31 @@ Our price measure is the mid-price: the average of the best available buy price 
 
 Finding that a predictive advantage disappears after trading costs is also a valid research result.
 
+## Getting Started
+
+```bash
+pip install -r requirements.txt
+pip install -e .                     # makes the packages in src/ importable
+python -m ofi.baseline --synthetic   # runs the linear baseline on synthetic data
+python -m pytest                     # runs the tests
+```
+
+## How to Use the Data Streamer
+
+Every part of the project reads market data through `stream()`, which returns batches of rows (pandas DataFrames) in timestamp order. It reads `.parquet` or `.csv` files, a folder of them, or a list. Synthetic data is converted to the shared schema (`ts` in UTC, `symbol`, ...) as it is loaded.
+
+```python
+from streamer import stream
+for batch in stream("data/synthetic", symbol="NVDA", start="2025-02-03 09:30:01", end="2025-02-03 09:30:05", batch_size=10_000):
+    print(batch[["ts", "symbol", "mid_price"]].head())
+```
+
+Times without a timezone are read as US/Eastern (market time). `start` is inclusive and `end` is exclusive. Files are read one batch at a time, so even large datasets never load into memory all at once.
+
+To check the streamer on real data (e.g. in the VM) with a stopping criterion, run `python -m streamer data/bronze --symbol NVDA --max-batches 5`. See `--help` for `--max-rows` and `--max-seconds`.
+
+See [docs/PROJECT_GUIDE.md](docs/PROJECT_GUIDE.md) for the repository layout, pipeline stages, data formats, and the list of remaining tasks.
+
 ## Team Workflow
 
 We use GitHub Issues and the project board to assign tasks, track progress, and review work. Code changes are submitted through pull requests for review before being merged.

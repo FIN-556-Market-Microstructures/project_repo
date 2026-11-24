@@ -15,10 +15,10 @@ Differences from a parser hard-coded to a few tickers:
     be included alongside order/trade rows (--include-admin)
 
 Usage:
-    python itch_parser.py path/to/xnas_pcaps
-    python itch_parser.py path/to/xnas_pcaps --tickers AAPL,MSFT --start 20250203 --end 20250207
-    python itch_parser.py path/to/xnas_pcaps --tickers ALL --split-by-date
-    python itch_parser.py path/to/xnas_pcaps --max-files 5 --no-book
+    python parser/itch_parser.py path/to/xnas_pcaps
+    python parser/itch_parser.py path/to/xnas_pcaps --tickers AAPL,MSFT --start 20250203 --end 20250207
+    python parser/itch_parser.py path/to/xnas_pcaps --tickers ALL --split-by-date
+    python parser/itch_parser.py path/to/xnas_pcaps --max-files 5 --no-book
 
 Requires: pip install zstandard   (Python 3.9+; on Windows also: pip install tzdata)
 """
