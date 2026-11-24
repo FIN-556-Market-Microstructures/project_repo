@@ -6,3 +6,7 @@ testdata/
 *.parquet
 *.pcap
 *.pcap.zst
+results/
+__pycache__/
+*.pyc
+.venv/
