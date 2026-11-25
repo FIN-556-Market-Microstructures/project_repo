@@ -116,8 +116,10 @@ python scripts/data_quality.py /dev/shm/fin556/silver --markdown --csv quality_a
 - **Question:** Does OFI predict NVDA mid-price changes out of sample, and at
   which horizons? First, replicate the contemporaneous Cont–Kukanov–Stoikov
   regression as a sanity check.
-- **Spec:** OLS with Newey-West errors per horizon, on T3 features, walk-forward
-  splits by whole day (T4).
+- **Spec:** OLS with Newey-West errors per horizon, on T3 features (100 ms).
+  Fit on the frozen training days, compare feature sets on validation, then
+  score **once** on the test days (April). Split: `SPLIT` in
+  `src/ofi/dataset.py` (guide §4.5).
 - **Results:** —
 
 ---
@@ -126,8 +128,9 @@ python scripts/data_quality.py /dev/shm/fin556/silver --markdown --csv quality_a
 
 - **Question:** Does a nonlinear model (LightGBM) beat the linear baseline
   at any horizon?
-- **Spec:** same features, splits and scorer (`ofi.evaluation.evaluate`) as
-  E4, tuned on validation days only.
+- **Spec:** same features, frozen split and scorer (`ofi.evaluation.evaluate`,
+  `evaluate_by_day`) as E4. Tuned on the validation days or walk-forward folds
+  inside the training period only; test days (April) scored once at the end.
 - **Results:** —
 
 ---
