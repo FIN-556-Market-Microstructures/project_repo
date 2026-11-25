@@ -117,6 +117,11 @@ def main(argv=None) -> int:
 
     try:
         days = available_days(args)
+        # the destination may not exist yet (e.g. a new Box folder); listing a
+        # missing folder is an error in rclone, so create it first
+        res = rclone(args, "mkdir", args.dest)
+        if res.returncode != 0:
+            raise RuntimeError(f"rclone mkdir {args.dest} failed: {res.stderr.strip()[-300:]}")
     except RuntimeError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2

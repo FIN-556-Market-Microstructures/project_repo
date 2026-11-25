@@ -2,7 +2,8 @@
 
     python fake_rclone.py copy  SRC DST [--include PATTERN ...]
     python fake_rclone.py check SRC DST --one-way [--include PATTERN ...]
-    python fake_rclone.py lsf   DIR [--include PATTERN ...]
+    python fake_rclone.py lsf   DIR [--include PATTERN ...]   (fails if DIR is missing, like rclone)
+    python fake_rclone.py mkdir DIR
 
 FAKE_RCLONE_FAIL=copy|check|lsf makes that command fail (to test error handling).
 """
@@ -22,13 +23,16 @@ if os.environ.get("FAKE_RCLONE_FAIL") == cmd:
 
 def matching(folder):
     folder = Path(folder)
-    if not folder.is_dir():
-        return []
+    if not folder.is_dir():                    # like real rclone: listing a missing folder fails
+        print(f"ERROR : error listing: directory not found: {folder}", file=sys.stderr)
+        sys.exit(3)
     return [p for p in sorted(folder.iterdir())
             if p.is_file() and any(fnmatch.fnmatch(p.name, pat) for pat in patterns)]
 
 
-if cmd == "lsf":
+if cmd == "mkdir":
+    Path(paths[0]).mkdir(parents=True, exist_ok=True)
+elif cmd == "lsf":
     for p in matching(paths[0]):
         print(p.name)
 elif cmd == "copy":
