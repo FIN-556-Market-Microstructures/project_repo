@@ -280,11 +280,15 @@ Decided **before** any model was scored on real data, and defined in
 `SPLIT` in `src/ofi/dataset.py`. Nobody tunes on the test days: tuning uses
 the validation days, or walk-forward folds inside the training period.
 
-| Part | Days | Count |
-|---|---|---|
-| Train | 3 Feb – 14 Mar 2025 | 29 |
-| Validation | 17 – 31 Mar 2025 | 11 |
-| **Test** | **1 – 30 Apr 2025** | **21** |
+| Part | Days | Count | Rows (100 ms) | Labels exactly 0: 10 ms / 100 ms / 1 s / 5 s |
+|---|---|---|---|---|
+| Train | 3 Feb – 14 Mar 2025 | 29 | 6,786,000 | 92% / 64% / 24% / 9% |
+| Validation | 17 – 31 Mar 2025 | 11 | 2,574,000 | 95% / 76% / 33% / 12% |
+| **Test** | **1 – 30 Apr 2025** | **21** | **4,914,000** | 92% / 66% / 27% / 10% |
+
+Late March (validation) was quieter: prices moved less often at every
+horizon. So validation and test scores can differ for reasons unrelated to
+the model; compare per-day results, not just pooled ones.
 
 The test month includes the 7–10 April tariff selloff (up to 3.6× normal
 activity), so a good test score means the model carries over to a new
