@@ -29,6 +29,9 @@ Finding that a predictive advantage disappears after trading costs is also a val
 ## Getting Started
 
 ```bash
+python3 -m venv .venv                # once, from the repo root (.venv/ is git-ignored)
+source .venv/bin/activate            # every new terminal; Windows: .venv\Scripts\activate
+pip install --upgrade pip
 pip install -r requirements.txt
 pip install -e .                     # makes the packages in src/ importable
 python -m ofi.baseline --synthetic   # runs the linear baseline on synthetic data

@@ -1,0 +1,39 @@
+# Order Flow Imbalance and Short-Term Price Prediction
+
+FIN 556 Market Microstructures, University of Illinois Urbana-Champaign.
+
+Can changes in buying and selling pressure in the order book (order flow
+imbalance, OFI) predict NVDA mid-price moves over the next few milliseconds to
+a few seconds? If so, does the edge survive the bid-ask spread, fees,
+slippage and latency? Finding that it does not is also a valid result.
+
+## Project status
+
+| Phase | Task | Status |
+|---|---|---|
+| Data | Synthetic order book data | :white_check_mark: Done |
+| Data | ITCH 5.0 parser (Python + C++) | :white_check_mark: Done |
+| Data | Data streamer: time-ordered batched reader | :white_check_mark: Done, checked on real NVDA data ([E1](experiments.md#e1-streamer-on-real-nvda-data)) |
+| Data | Shared schema (Ticket 2) | :hourglass: In progress (streamer uses a provisional version) |
+| Data | Order book reconstruction from ITCH events | :white_circle: Not started |
+| Features | OFI, queue imbalance, trade sign, `ret_<h>ms` labels | :white_circle: Not started |
+| Models | Linear OFI baseline + shared evaluation harness | :white_check_mark: Harness done, checked on synthetic data ([E2](experiments.md#e2-evaluation-harness-on-synthetic-features)) |
+| Models | Gradient-boosted model | :white_circle: Not started |
+| Costs | Spread, fees, slippage, latency evaluation | :white_circle: Not started |
+
+## Where to read
+
+| Page | What it covers |
+|---|---|
+| [Project guide](PROJECT_GUIDE.md) | Repository layout, pipeline stages, data formats, how to run things |
+| [Experiments](experiments.md) | Every experiment we have run: what, how, results, status |
+
+## Quick start
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && pip install -e .
+python -m pytest                       # tests
+python -m ofi.baseline --synthetic     # linear baseline on synthetic data
+mkdocs serve                           # this site, at http://127.0.0.1:8000
+```
