@@ -27,7 +27,7 @@ Preparation steps, not a test. Each row feeds the next.
 | Stream in time order, shared schema | `src/streamer/` | batches in memory | :white_check_mark: Done ([E1](#e1-streamer-on-real-nvda-data)) |
 | Agree shared schema (Ticket 2) | [`docs/schema.md`](schema.md), `src/streamer/schema.py` | — | :hourglass: Proposed, waiting for team 👍 |
 | Synthetic data in the shared schema | `python -m streamer.convert` | `data/synthetic/nvda_{messages,book,trades}.parquet` | :white_check_mark: Done |
-| Rebuild order book from events | `src/ofi/book.py` | 5-level snapshots | :white_circle: Not started |
+| Rebuild order book from events | `src/ofi/book.py` (`python -m ofi.book`) | `book` table, one row per top-5 change | :white_check_mark: Done: exact match on synthetic; real 10-min NVDA file: 0 crossed/locked, 149k msgs/s |
 | Features + labels | `src/ofi/features.py` | `data/gold/features_*.parquet` | :white_circle: Not started |
 | CME Globex (glbx_pcaps) parser | — | shared schema | :white_circle: Not started (needs secdef for SecurityID → symbol) |
 
