@@ -28,7 +28,8 @@ slippage and latency? Finding that it does not is also a valid result.
 |---|---|
 | [Project guide](PROJECT_GUIDE.md) | Repository layout, pipeline stages, how to run things |
 | [Shared schema](schema.md) | The three tables every stage reads and writes: messages, book, trades |
-| [Experiments](experiments.md) | Every experiment we have run: what, how, results, status |
+| [Experiments](experiments.md) | Every experiment: question, data, commands, status |
+| [Results](results.md) | What we found: key findings and each experiment's results |
 
 ## Quick start
 

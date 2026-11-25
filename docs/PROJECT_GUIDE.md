@@ -309,10 +309,11 @@ Then score it at each horizon the same way `run_horizons` in
    (README, *Team Workflow*). Put them in the PR description or under
    `docs/ai_logs/`.
 6. When you run something whose result matters (a check on real data, a
-   model fit, a cost study), record it in [Experiments](experiments.md):
-   the question, data, exact commands, a results table and what it means.
-   Update the status in the index table at the top. Preview the site with
-   `mkdocs serve`.
+   model fit, a cost study), record **how** it was run in
+   [Experiments](experiments.md) (question, data, exact commands, status) and
+   **what it found** in [Results](results.md) (tables and interpretation). Add
+   a line to the key findings at the top of Results if it changes the story.
+   Preview the site with `mkdocs serve`.
 
 ## 6. What is left to build
 

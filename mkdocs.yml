@@ -25,6 +25,7 @@ nav:
   - Project guide: PROJECT_GUIDE.md
   - Shared schema: schema.md
   - Experiments: experiments.md
+  - Results: results.md
 
 markdown_extensions:
   - tables
