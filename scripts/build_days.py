@@ -130,7 +130,10 @@ def build_day(day: str, args) -> dict:
     linked, missing = link_files(Path(args.root), day, raw_dir,
                                  parse_hhmm(args.start_et), parse_hhmm(args.end_et))
     if linked == 0:
-        raise RuntimeError(f"no capture files for {day} in the {args.start_et}-{args.end_et} ET window")
+        # e.g. a market holiday: the date folder exists but holds no captures
+        log(day, f"no capture files in the {args.start_et}-{args.end_et} ET window "
+                 f"(market holiday?); skipped")
+        return {"date": day, "status": "no_data"}
     log(day, f"linked {linked} file(s)" + (f", {len(missing)} slot(s) MISSING" if missing else ""))
 
     # 2. parse + 3. convert (skipped once the silver messages/trades exist, so the
@@ -235,18 +238,22 @@ def main(argv=None) -> int:
         return 2
     print(f"building {len(days)} day(s) with {args.jobs} job(s): {' '.join(days)}\n", flush=True)
 
-    failed = {}
+    failed, no_data = {}, []
     with ProcessPoolExecutor(max_workers=args.jobs) as pool:
         futures = {pool.submit(build_day, d, args): d for d in days}
         for fut in as_completed(futures):
             d = futures[fut]
             try:
-                fut.result()
+                if (fut.result() or {}).get("status") == "no_data":
+                    no_data.append(d)
             except Exception as e:                       # keep going with the other days
                 failed[d] = f"{type(e).__name__}: {e}"
                 log(d, f"FAILED: {failed[d]}")
 
-    print(f"\n{len(days) - len(failed)} of {len(days)} day(s) built.")
+    n_built = len(days) - len(failed) - len(no_data)
+    print(f"\n{n_built} of {len(days)} day(s) built"
+          + (f"; {len(no_data)} skipped with no trading data: {' '.join(sorted(no_data))}" if no_data else "")
+          + ".")
     for d, e in failed.items():
         print(f"  {d}: {e}")
     print(f"Summary table: python scripts/data_quality.py {Path(args.data) / 'silver'}")

@@ -116,11 +116,12 @@ def test_quality_summary_table(built):
     assert "CHECK these day(s): 20250203" in res.stdout   # flagged: 72 missing files
 
 
-def test_missing_day_fails_cleanly(tmp_path):
-    (tmp_path / "20250203").mkdir()
+def test_day_without_captures_is_skipped_not_failed(tmp_path):
+    (tmp_path / "20250203").mkdir()                     # e.g. a market holiday: empty folder
     res = run([SCRIPTS / "build_days.py", tmp_path, "--dates", "20250203", "--data", tmp_path / "data"])
-    assert res.returncode == 1
-    assert "no capture files" in res.stdout
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "market holiday?" in res.stdout
+    assert "0 of 1 day(s) built; 1 skipped with no trading data: 20250203." in res.stdout
 
 
 # --------------------------------------------------------------------------- upload (rclone, e.g. UIUC Box)
