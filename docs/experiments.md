@@ -10,9 +10,12 @@ row to the index.
 | E0 | [Data pipeline](#e0-data-pipeline) | :hourglass: Parser and streamer done; book rebuild and features not started |
 | E1 | [Streamer on real NVDA data](#e1-streamer-on-real-nvda-data) | :white_check_mark: Time order holds; capture − exchange latency median 167.5 µs, as expected |
 | E2 | [Evaluation harness on synthetic features](#e2-evaluation-harness-on-synthetic-features) | :white_check_mark: Recovers the planted signal (R² 0.09 at 10 ms, ~0 by 1 s) |
-| E3 | [Linear OFI baseline on real NVDA](#e3-linear-ofi-baseline-on-real-nvda) | :white_circle: Not started (needs E0 features) |
-| E4 | [Gradient-boosted model vs. linear](#e4-gradient-boosted-model-vs-linear) | :white_circle: Not started |
-| E5 | [Trading costs and latency](#e5-trading-costs-and-latency) | :white_circle: Not started |
+| E3 | [Real data quality (study days)](#e3-real-data-quality-study-days) | :white_check_mark: 61 full days (Feb–Apr 2025), 671M messages: 0 missing sides, 0 unknown orders, 0 crossed books, 0 gaps; latency median 167 µs |
+| E4 | [Linear OFI baseline on real NVDA](#e4-linear-ofi-baseline-on-real-nvda) | :white_circle: Not started (T5) |
+| E5 | [Gradient-boosted model vs. linear](#e5-gradient-boosted-model-vs-linear) | :white_circle: Not started (T6) |
+| E6 | [Evaluation and robustness](#e6-evaluation-and-robustness) | :white_circle: Not started (T7) |
+| E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :white_circle: Not started (final step, after T8) |
+| E8 | [C++ vs Python ITCH parser](#e8-c-vs-python-itch-parser) | :white_check_mark: Identical output on real NVDA data; C++ 16× faster (10 s vs 2 min 41 s per file); file-boundary bug found and fixed |
 
 ---
 
@@ -23,7 +26,7 @@ Preparation steps, not a test. Each row feeds the next.
 | Step | Script | Output | Status |
 |---|---|---|---|
 | Synthetic order book data | `scripts/generate_nvda_synthetic.py` | `data/synthetic/nvda_lob_1ms.csv` | :white_check_mark: Done |
-| Parse raw ITCH captures | `parser/itch_parser.py` (or `parser/itch_parser.cpp`) | `data/bronze/itch_orders_*.csv` | :white_check_mark: Done |
+| Parse raw ITCH captures | `parser/itch_parser.cpp` (Python `parser/itch_parser.py` is the reference) | `data/bronze/itch_orders_*.csv` | :white_check_mark: Done; C++ validated, 16× faster ([E8](#e8-c-vs-python-itch-parser)) |
 | Stream in time order, shared schema | `src/streamer/` | batches in memory | :white_check_mark: Done ([E1](#e1-streamer-on-real-nvda-data)) |
 | Agree shared schema (Ticket 2) | [`docs/schema.md`](schema.md), `src/streamer/schema.py` | — | :hourglass: Proposed, waiting for team 👍 |
 | Synthetic data in the shared schema | `python -m streamer.convert` | `data/synthetic/nvda_{messages,book,trades}.parquet` | :white_check_mark: Done |
@@ -127,32 +130,177 @@ python -m streamer data/bronze --symbol NVDA --max-batches 5
 
 ---
 
-## E3: Linear OFI baseline on real NVDA
+## E3: Real data quality (study days)
 
-- **Question:** Does level-1 OFI predict NVDA mid-price changes out of
-  sample, and at which horizons?
-- **Spec:** same as E2, on real features. Split on whole days in time order.
-- **Command:** `python -m ofi.baseline --features data/gold/features_NVDA_<date>.parquet`
-- **Needs:** E0 book rebuild and features.
+- **Question:** Which days of NVDA data are complete and clean enough to
+  study, parsed from the session open so every order is known?
+- **Data:** `/db_pcaps/xnas_pcaps` (Nasdaq TotalView-ITCH 5.0, captured at
+  NY4), every 10-minute file from 04:00 to 16:10 ET (73 files per day),
+  NVDA only.
+- **Run on:** course VM. C++ parser (E8), 6 days in parallel. Each day was
+  built in RAM (`/dev/shm`) and its silver files were uploaded to UIUC Box
+  (`box:fin556/silver`) and verified before being deleted from the VM, because
+  the VM's disk has only ~7 GB free.
+- **Commands:**
+
+```bash
+# 1. which days are complete (04:00-16:10 ET window, DST-aware)
+python scripts/inventory_pcaps.py /db_pcaps/xnas_pcaps --csv data/inventory.csv
+
+# 2. build every complete day: link -> parse -> convert -> book -> quality -> upload (resumable)
+python scripts/build_days.py /db_pcaps/xnas_pcaps --from 20250203 --to 20250430 --jobs 6 \
+    --parser-bin ./itch_parser --data /dev/shm/fin556 --upload box:fin556/silver
+
+# 3. per-day quality table
+python scripts/data_quality.py /dev/shm/fin556/silver --markdown --csv quality_all.csv
+```
+
+- **Study days: 61 trading days, 3 Feb – 30 Apr 2025**, every one with all 73
+  files. The archive's date folders span 1 Feb – 30 Apr. Excluded:
+    - weekends (no regular trading)
+    - **17 Feb** (Presidents' Day) and **18 Apr** (Good Friday): market
+      holidays, with no capture files
+    - 72 folders with impossible names (`20250229`–`20250300`), ignored by the
+      inventory
+- **Result** (all 61 days):
+
+| Check | Min | Median | Max | Total |
+|---|---|---|---|---|
+| NVDA messages per day (04:00–16:10 ET) | 4.88M | 9.59M | 34.51M | **671.0M** |
+| … of which in regular hours (09:30–16:00) | 4.53M | 9.15M | 33.35M | 639.5M |
+| Executes/cancels/deletes with no side | 0% | 0% | 0% | — |
+| Unknown orders in the book rebuild | 0 | 0 | 0 | **0** |
+| Crossed / locked book snapshots | 0 / 0 | 0 / 0 | 0 / 0 | **0 / 0** |
+| Capture − exchange latency, median | 166.5 µs | 167.0 µs | 168.8 µs | — |
+| Capture − exchange latency, p99 | 188.1 µs | 190.7 µs | 193.8 µs | — |
+| Trades per day | 215k | 388k | 1.29M | **29.3M** |
+| Trades with unknown aggressor (hidden orders) | 14.7% | 19.7% | 24.9% | — |
+| Missing files / sequence gaps / lost messages | 0 | 0 | 0 | **0** |
+
+Busiest days, all in the April tariff selloff:
+
+| Date | Messages | Trades |
+|---|---|---|
+| 7 Apr 2025 | 34.5M | 1.29M |
+| 9 Apr 2025 | 28.0M | 1.25M |
+| 10 Apr 2025 | 24.5M | 0.95M |
+| 8 Apr 2025 | 21.8M | 0.98M |
+
+- **Storage:** 305 files (5 per day: messages, trades, book, book stats,
+  quality) = **13.4 GiB** in Box, about 0.22 GiB per day. One day takes about
+  10 minutes on one job.
+- **Interpretation:**
+    - Every study day is complete and internally consistent. Starting from
+      04:00 ET, with the parser's file-boundary bug fixed (E8), every
+      execute, cancel and delete matches a known order, and the rebuilt book
+      is never crossed in ~6.5M snapshots per day. These are the data for
+      every model.
+    - Capture latency is very stable (median 166.5–168.8 µs every day), so
+      the NY4 ↔ Carteret transit is a fixed offset. This matters for the
+      backtest latency model.
+    - **About 20% of trades have no known aggressor:** these are hidden-order
+      trades, whose side Nasdaq doesn't report. Trade-sign features count
+      them as 0, a limitation to state in the report.
+    - **7–10 April is a different regime:** up to 3.6× the median message
+      count. That's useful for robustness tests (T7), and it matters when
+      choosing the test period (T4).
+
+---
+
+## E4: Linear OFI baseline on real NVDA
+
+- **Question:** Does OFI predict NVDA mid-price changes out of sample, and at
+  which horizons? First, replicate the contemporaneous Cont–Kukanov–Stoikov
+  regression as a sanity check.
+- **Spec:** OLS with Newey-West errors per horizon, on T3 features, walk-forward
+  splits by whole day (T4).
 - **Result:** —
 
 ---
 
-## E4: Gradient-boosted model vs. linear
+## E5: Gradient-boosted model vs. linear
 
 - **Question:** Does a nonlinear model (LightGBM) beat the linear baseline
   at any horizon?
-- **Spec:** same features, split and scorer (`ofi.evaluation.evaluate`) as
-  E3, so the results tables line up.
-- **Script:** `src/ofi/models/gbm.py` (to build).
+- **Spec:** same features, splits and scorer (`ofi.evaluation.evaluate`) as
+  E4, tuned on validation days only.
 - **Result:** —
 
 ---
 
-## E5: Trading costs and latency
+## E6: Evaluation and robustness
 
-- **Question:** Does any predictive edge from E3/E4 survive the bid-ask
-  spread, fees, slippage and execution latency?
-- **Spec:** to be decided. Use `capture_ts` (when we see data at NY4) plus
-  an order-entry delay for the latency model, not exchange time.
+- **Question:** Is the edge statistically significant (Diebold-Mariano,
+  day-level bootstrap) and stable across days, time of day, spread,
+  volatility and activity?
 - **Result:** —
+
+---
+
+## E7: Trading costs and latency (backtest)
+
+- **Question:** Does any predictive edge survive the bid-ask spread, fees,
+  slippage and execution latency?
+- **Spec:** starts from the T8 signal files. Use `capture_ts_ns` (when we see
+  data at NY4) plus an order-entry delay for latency, not exchange time.
+- **Result:** —
+
+---
+
+## E8: C++ vs Python ITCH parser
+
+- **Question:** Can the C++ parser replace the Python one for full trading
+  days? Is its output identical on real data, and how much faster is it?
+- **Data:** the E1 file,
+  `xnas_pcaps/20250203/ny4-xnas-tvitch-a-20250203T143000.pcap.zst`
+  (1.1 GB compressed, 10 minutes from the 09:30 open, all symbols scanned,
+  NVDA kept). Plus synthetic multi-file captures in `tests/test_parser.py`.
+- **Run on:** course VM. The VM has no zstd headers and no sudo, so zstd
+  1.5.6 was built in the home folder and linked statically.
+- **Commands:**
+
+```bash
+# build zstd without sudo, then build and test the parser
+cd ~ && curl -L -o zstd-1.5.6.tar.gz https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz
+tar xzf zstd-1.5.6.tar.gz && make -C zstd-1.5.6/lib -j16 libzstd.a
+cd ~/Documents/project_repo && make test ZSTD_DIR=$HOME/zstd-1.5.6
+
+# real file: time both parsers and compare the CSVs byte for byte
+mkdir -p /tmp/one && ln -sf /db_pcaps/xnas_pcaps/20250203/ny4-xnas-tvitch-a-20250203T143000.pcap.zst /tmp/one/
+time ./itch_parser /tmp/one --tickers NVDA --outdir /tmp/out_cpp
+time python parser/itch_parser.py /tmp/one --tickers NVDA --outdir /tmp/out_py
+cmp /tmp/out_cpp/itch_orders_all.csv /tmp/out_py/itch_orders_all.csv && echo "REAL FILE: identical"
+```
+
+- **Result:**
+
+| | Python | C++ |
+|---|---|---|
+| Wall time, one 10-minute file | 2 min 41 s | **10.0 s** (16× faster) |
+| Messages scanned | 45,088,399 | 45,088,399 |
+| NVDA rows written | 962,724 | 962,724 |
+| Output CSV | — | **byte-for-byte identical** |
+| Memory | ~8.2 GB (decompresses the whole file first) | small (decompresses in pieces) |
+| `make test` golden test (one file) | — | passed |
+| Multi-file parity tests (9) | — | passed |
+
+- **File-boundary bug, found and fixed along the way.** The first full-day
+  pilot printed `MoldUDP64 session changed: tracking state reset` between
+  consecutive files. The Python parser tracked the feed session inside the
+  per-file reader, so every 10-minute file boundary looked like a new
+  session. It wiped the order book and symbol map, and executes, cancels and
+  deletes of earlier orders lost their side and price. The session and
+  expected sequence number are now carried across files in both parsers,
+  which also lets gaps *between* files be detected. `tests/test_parser.py`
+  builds two-file captures that fail on the old Python parser. Single-file
+  results (E1, the T1 book check) were not affected.
+- **Interpretation:**
+    - Use the C++ parser for full days:
+      `scripts/build_days.py ... --parser-bin ./itch_parser`. A full day
+      parses in roughly 4 minutes instead of 1–2 hours, and all 61 study
+      days in about 3 CPU-hours instead of ~50.
+    - The Python parser stays as the reference implementation. Any change to
+      parsing must keep `make test` passing.
+    - With parsing this fast, the slowest steps are now conversion to Parquet
+      and the book rebuild (Python).
+

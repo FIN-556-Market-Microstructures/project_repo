@@ -573,6 +573,14 @@ struct Parser {
     std::map<std::string, long long> counts;  // "TICKER|TYPE" -> n
     std::vector<std::string> warnings;
 
+    // MoldUDP64 session and next expected sequence number. Kept for the whole
+    // run, not per file: a capture is split into 10-minute files but the session
+    // continues across them, and keeping it lets gaps between files be detected.
+    uint8_t session[10] = {0};
+    bool have_session = false;
+    uint64_t expected_seq = 0;
+    bool have_expected = false;
+
     Parser(const Args& a, Writers& w) : args(a), out(w) {}
 
     void reset_session() {
@@ -606,11 +614,6 @@ Stats Parser::run_file(const std::string& path, const std::string& stamp) {
     }
     const uint32_t frac_scale = (magic == 0xA1B23C4Du) ? 1u : 1000u;  // ns vs us
     fd.skip(24);
-
-    uint8_t session[10];
-    bool have_session = false;
-    uint64_t expected_seq = 0;
-    bool have_expected = false;
 
     char note[64];
 

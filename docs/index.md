@@ -15,6 +15,7 @@ slippage and latency? Finding that it does not is also a valid result.
 | Data | ITCH 5.0 parser (Python + C++) | :white_check_mark: Done |
 | Data | Data streamer: time-ordered batched reader | :white_check_mark: Done, checked on real NVDA data ([E1](experiments.md#e1-streamer-on-real-nvda-data)) |
 | Data | Shared schema (Ticket 2) | :hourglass: Proposed ([schema](schema.md)), waiting for team 👍; synthetic data converted |
+| Data | Study data: 61 full trading days (Feb–Apr 2025) parsed, rebuilt and quality-checked ([E3](experiments.md#e3-real-data-quality-study-days)) | :white_check_mark: Done: 0 missing sides, 0 crossed books, 0 gaps; 13.4 GiB in Box |
 | Data | Order book reconstruction from ITCH events | :white_check_mark: Done: exact match on synthetic; real NVDA file 0 crossed/locked, 149k msgs/s |
 | Features | OFI, queue imbalance, trade sign, `ret_<h>ms` labels | :white_circle: Not started |
 | Models | Linear OFI baseline + shared evaluation harness | :white_check_mark: Harness done, checked on synthetic data ([E2](experiments.md#e2-evaluation-harness-on-synthetic-features)) |

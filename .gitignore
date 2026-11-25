@@ -1,4 +1,5 @@
 itch_parser
+itch_parser.exe
 *.o
 out*/
 testdata/
@@ -13,3 +14,11 @@ __pycache__/
 .venv/
 *.log
 site/
+# pipeline outputs (real data never goes in git)
+data/raw/
+data/bronze/
+data/silver/
+data/gold/
+data/logs/
+data/signals/
+models/
