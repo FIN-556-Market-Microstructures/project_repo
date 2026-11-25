@@ -15,6 +15,7 @@ row to the index.
 | E5 | [Gradient-boosted model vs. linear](#e5-gradient-boosted-model-vs-linear) | :white_circle: Not started (T6) |
 | E6 | [Evaluation and robustness](#e6-evaluation-and-robustness) | :white_circle: Not started (T7) |
 | E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :white_circle: Not started (final step, after T8) |
+| E8 | [C++ vs Python ITCH parser](#e8-c-vs-python-itch-parser) | :white_check_mark: Identical output on real NVDA data; C++ 16× faster (10 s vs 2 min 41 s per file); file-boundary bug found and fixed |
 
 ---
 
@@ -25,7 +26,7 @@ Preparation steps, not a test. Each row feeds the next.
 | Step | Script | Output | Status |
 |---|---|---|---|
 | Synthetic order book data | `scripts/generate_nvda_synthetic.py` | `data/synthetic/nvda_lob_1ms.csv` | :white_check_mark: Done |
-| Parse raw ITCH captures | `parser/itch_parser.py` (or `parser/itch_parser.cpp`) | `data/bronze/itch_orders_*.csv` | :white_check_mark: Done |
+| Parse raw ITCH captures | `parser/itch_parser.cpp` (Python `parser/itch_parser.py` is the reference) | `data/bronze/itch_orders_*.csv` | :white_check_mark: Done; C++ validated, 16× faster ([E8](#e8-c-vs-python-itch-parser)) |
 | Stream in time order, shared schema | `src/streamer/` | batches in memory | :white_check_mark: Done ([E1](#e1-streamer-on-real-nvda-data)) |
 | Agree shared schema (Ticket 2) | [`docs/schema.md`](schema.md), `src/streamer/schema.py` | — | :hourglass: Proposed, waiting for team 👍 |
 | Synthetic data in the shared schema | `python -m streamer.convert` | `data/synthetic/nvda_{messages,book,trades}.parquet` | :white_check_mark: Done |
@@ -191,3 +192,63 @@ python scripts/data_quality.py data/silver --markdown --csv data/quality.csv
 - **Spec:** starts from the T8 signal files. Use `capture_ts_ns` (when we see
   data at NY4) plus an order-entry delay for latency, not exchange time.
 - **Result:** —
+
+---
+
+## E8: C++ vs Python ITCH parser
+
+- **Question:** Can the C++ parser replace the Python one for full trading
+  days? Is its output identical on real data, and how much faster is it?
+- **Data:** the E1 file,
+  `xnas_pcaps/20250203/ny4-xnas-tvitch-a-20250203T143000.pcap.zst`
+  (1.1 GB compressed, 10 minutes from the 09:30 open, all symbols scanned,
+  NVDA kept). Plus synthetic multi-file captures in `tests/test_parser.py`.
+- **Run on:** course VM. The VM has no zstd headers and no sudo, so zstd
+  1.5.6 was built in the home folder and linked statically.
+- **Commands:**
+
+```bash
+# build zstd without sudo, then build and test the parser
+cd ~ && curl -L -o zstd-1.5.6.tar.gz https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz
+tar xzf zstd-1.5.6.tar.gz && make -C zstd-1.5.6/lib -j16 libzstd.a
+cd ~/Documents/project_repo && make test ZSTD_DIR=$HOME/zstd-1.5.6
+
+# real file: time both parsers and compare the CSVs byte for byte
+mkdir -p /tmp/one && ln -sf /db_pcaps/xnas_pcaps/20250203/ny4-xnas-tvitch-a-20250203T143000.pcap.zst /tmp/one/
+time ./itch_parser /tmp/one --tickers NVDA --outdir /tmp/out_cpp
+time python parser/itch_parser.py /tmp/one --tickers NVDA --outdir /tmp/out_py
+cmp /tmp/out_cpp/itch_orders_all.csv /tmp/out_py/itch_orders_all.csv && echo "REAL FILE: identical"
+```
+
+- **Result:**
+
+| | Python | C++ |
+|---|---|---|
+| Wall time, one 10-minute file | 2 min 41 s | **10.0 s** (16× faster) |
+| Messages scanned | 45,088,399 | 45,088,399 |
+| NVDA rows written | 962,724 | 962,724 |
+| Output CSV | — | **byte-for-byte identical** |
+| Memory | ~8.2 GB (decompresses the whole file first) | small (decompresses in pieces) |
+| `make test` golden test (one file) | — | passed |
+| Multi-file parity tests (9) | — | passed |
+
+- **File-boundary bug, found and fixed along the way.** The first full-day
+  pilot printed `MoldUDP64 session changed: tracking state reset` between
+  consecutive files. The Python parser tracked the feed session inside the
+  per-file reader, so every 10-minute file boundary looked like a new
+  session. It wiped the order book and symbol map, and executes, cancels and
+  deletes of earlier orders lost their side and price. The session and
+  expected sequence number are now carried across files in both parsers,
+  which also lets gaps *between* files be detected. `tests/test_parser.py`
+  builds two-file captures that fail on the old Python parser. Single-file
+  results (E1, the T1 book check) were not affected.
+- **Interpretation:**
+    - Use the C++ parser for full days:
+      `scripts/build_days.py ... --parser-bin ./itch_parser`. A full day
+      parses in roughly 4 minutes instead of 1–2 hours, and all 61 study
+      days in about 3 CPU-hours instead of ~50.
+    - The Python parser stays as the reference implementation. Any change to
+      parsing must keep `make test` passing.
+    - With parsing this fast, the slowest steps are now conversion to Parquet
+      and the book rebuild (Python).
+
