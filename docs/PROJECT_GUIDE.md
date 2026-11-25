@@ -325,7 +325,7 @@ Mapped to the README's planned approach:
 | 2a | Shared schema (Ticket 2) | proposed, waiting for team 👍 | [`docs/schema.md`](schema.md), `src/streamer/schema.py` |
 | 2b | Data streamer: time-ordered batched reader | done (needs review) | `src/streamer/` |
 | 3 | Book reconstruction: messages → book (top 5 levels), event by event | done (exact on synthetic; 0 crossed on real NVDA, 149k msgs/s on the VM) | `src/ofi/book.py` |
-| 4 | Features + labels (OFI levels 1–5 over 4 windows, imbalances, trades, activity, volatility, time of day) | built and tested on synthetic; real days pending | `src/ofi/features.py`, `scripts/build_features.py` |
+| 4 | Features + labels (OFI levels 1–5 over 4 windows, imbalances, trades, activity, volatility, time of day) | done: 61 days at 100 ms (14.3M rows) in Box `fin556/gold` | `src/ofi/features.py`, `scripts/build_features.py` |
 | 5 | Linear baseline + shared evaluation harness | done | `src/ofi/models/linear.py`, `src/ofi/evaluation.py` |
 | 6 | Gradient-boosted model compared with the baseline across horizons | to do | `src/ofi/models/gbm.py` |
 | 7 | Cost and latency evaluation: does the edge survive spread, fees, slippage and latency? | to do | `src/ofi/costs.py` |
