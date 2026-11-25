@@ -18,7 +18,7 @@ slippage and latency? Finding that it does not is also a valid result.
 | Data | Study data: 61 full trading days (Feb–Apr 2025) parsed, rebuilt and quality-checked ([E3](experiments.md#e3-real-data-quality-study-days)) | :white_check_mark: Done: 0 missing sides, 0 crossed books, 0 gaps; 13.4 GiB in Box |
 | Data | Order book reconstruction from ITCH events | :white_check_mark: Done: exact match on synthetic; real NVDA file 0 crossed/locked, 149k msgs/s |
 | Features | OFI (levels 1–5, 4 windows), imbalances, trades, activity, volatility; `ret_<h>ms` labels | :white_check_mark: Done: 61 days × 234,000 rows at 100 ms (14.3M rows, 1.09 GiB in Box) |
-| Models | Linear OFI baseline + shared evaluation harness | :white_check_mark: Harness done, checked on synthetic data ([E2](experiments.md#e2-evaluation-harness-on-synthetic-features)) |
+| Models | Linear OFI baseline on real data | :white_check_mark: Done: April R² up to 1.4% (all features), 0.5% (all OFI), ≤0.05% (one OFI) ([E4](results.md#e4-linear-ofi-baseline-on-real-nvda)) |
 | Models | Dataset loading, frozen split (train Feb–mid Mar, validate late Mar, test April), scaling, per-day evaluation | :white_check_mark: Done (T4) |
 | Models | Gradient-boosted model | :white_circle: Not started |
 | Costs | Spread, fees, slippage, latency evaluation | :white_circle: Not started |
