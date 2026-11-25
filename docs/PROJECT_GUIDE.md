@@ -272,16 +272,68 @@ python scripts/build_features.py --source box:fin556/silver --dest box:fin556/go
 
 Every model is scored with `ofi.evaluation.evaluate(model, Dataset(X, y))`.
 Any object with a `.predict(X)` method works, including sklearn and LightGBM
-models. Rules that apply to every model:
+models.
 
-1. **Split by day in time order, never randomly** (`split_by_day`).
-   Neighbouring book events are near-duplicates, so a random split leaks
-   test rows into training.
+#### The frozen split (T4)
+
+Decided **before** any model was scored on real data, and defined in
+`SPLIT` in `src/ofi/dataset.py`. Nobody tunes on the test days: tuning uses
+the validation days, or walk-forward folds inside the training period.
+
+| Part | Days | Count | Rows (100 ms) | Labels exactly 0: 10 ms / 100 ms / 1 s / 5 s |
+|---|---|---|---|---|
+| Train | 3 Feb – 14 Mar 2025 | 29 | 6,786,000 | 92% / 64% / 24% / 9% |
+| Validation | 17 – 31 Mar 2025 | 11 | 2,574,000 | 95% / 76% / 33% / 12% |
+| **Test** | **1 – 30 Apr 2025** | **21** | **4,914,000** | 92% / 66% / 27% / 10% |
+
+Late March (validation) was quieter: prices moved less often at every
+horizon. So validation and test scores can differ for reasons unrelated to
+the model; compare per-day results, not just pooled ones.
+
+The test month includes the 7–10 April tariff selloff (up to 3.6× normal
+activity), so a good test score means the model carries over to a new
+regime. `walk_forward()` gives rolling or expanding whole-day folds for
+tuning and stability checks.
+
+```python
+from ofi.dataset import SPLIT, load_days, Scaler, walk_forward
+from ofi.evaluation import Dataset, evaluate, evaluate_by_day
+from ofi.schema import FEATURE_COLS
+
+gold = "/dev/shm/fin556/gold"        # rclone copy box:fin556/gold /dev/shm/fin556/gold
+tr = load_days(gold, SPLIT.train, target="ret_100ms")
+va = load_days(gold, SPLIT.valid, target="ret_100ms")
+scaler = Scaler().fit(tr[FEATURE_COLS])                       # training data only
+X_tr, X_va = scaler.transform(tr[FEATURE_COLS]), scaler.transform(va[FEATURE_COLS])
+...
+per_day, summary = evaluate_by_day(model, Dataset(X_va, va["ret_100ms"], meta=va[["date", "spread"]]))
+```
+
+`python -m ofi.dataset /dev/shm/fin556/gold` prints the days, the split, and
+the share of zero labels in each part. All 61 days at 100 ms fit in about
+3 GB of memory (features stored as float32).
+
+#### Rules that apply to every model
+
+1. **Split by whole day in time order, never randomly** (`SPLIT`,
+   `walk_forward`). Neighbouring observations are near-duplicates, so a
+   random split leaks test rows into training. Labels never cross a day
+   (they're blank after 16:00) and feature windows look back within the day,
+   so whole-day splits need no extra gap; `check_no_leakage()` verifies it.
 2. **Use HAC (Newey-West) standard errors** for any regression t-stat.
    Overlapping horizons make the residuals autocorrelated.
 3. **`r2_oos` is measured against the training mean**, not the test mean.
 4. **`hit_rate` excludes rows where the mid did not move.** Report
    `zero_share` alongside it.
+5. **Scale with training statistics only** (`Scaler`: clip to training
+   quantiles, then standardise). Never fit anything on validation or test data.
+6. **Report per-day results, not just pooled ones** (`evaluate_by_day`): an
+   edge that comes from one or two days isn't an edge.
+7. **Check trading relevance:** with `meta["spread"]`, `evaluate` also reports
+   how often the sign is right when the actual move is bigger than half the
+   spread (`big_move_hit_rate`), and when the *predicted* move is
+   (`confident_hit_rate`, with `confident_share`). A move smaller than half the
+   spread can't pay for crossing it.
 
 Adding a model (e.g. the GBM):
 
@@ -328,6 +380,7 @@ Mapped to the README's planned approach:
 | 3 | Book reconstruction: messages → book (top 5 levels), event by event | done (exact on synthetic; 0 crossed on real NVDA, 149k msgs/s on the VM) | `src/ofi/book.py` |
 | 4 | Features + labels (OFI levels 1–5 over 4 windows, imbalances, trades, activity, volatility, time of day) | done: 61 days at 100 ms (14.3M rows) in Box `fin556/gold` | `src/ofi/features.py`, `scripts/build_features.py` |
 | 5 | Linear baseline + shared evaluation harness | done | `src/ofi/models/linear.py`, `src/ofi/evaluation.py` |
+| 5a | Dataset loading, frozen split, scaling, per-day evaluation (T4) | done | `src/ofi/dataset.py`, `src/ofi/evaluation.py` |
 | 6 | Gradient-boosted model compared with the baseline across horizons | to do | `src/ofi/models/gbm.py` |
 | 7 | Cost and latency evaluation: does the edge survive spread, fees, slippage and latency? | to do | `src/ofi/costs.py` |
 | 8 | Extra book features / market regimes, extend beyond NVDA | stretch | — |
