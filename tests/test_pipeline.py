@@ -45,6 +45,8 @@ def test_inventory_finds_missing_slots(tmp_path):
     touch_day(tmp_path, "20250203", [s for s in slots if s.strftime("%H%M") not in ("1430", "1440")])
     touch_day(tmp_path, "20250204", [s + timedelta(days=1) for s in slots])
     touch_day(tmp_path, "20250208", [s + timedelta(days=5) for s in slots])   # a Saturday
+    (tmp_path / "20250230").mkdir()                                     # not a real date
+    (tmp_path / "notes").mkdir()                                        # not a date at all
 
     res = run([SCRIPTS / "inventory_pcaps.py", tmp_path, "--csv", tmp_path / "inv.csv"])
     assert res.returncode == 0, res.stderr
@@ -54,6 +56,8 @@ def test_inventory_finds_missing_slots(tmp_path):
     assert bool(inv.loc["20250204", "complete"]) is True
     assert bool(inv.loc["20250208", "complete"]) is False       # weekend
     assert "1 complete weekday(s)" in res.stdout
+    assert "skipped 1 folder(s) whose name is not a valid date: 20250230" in res.stdout
+    assert "20250230" not in inv.index
 
 
 # --------------------------------------------------------------------------- build_days + data_quality

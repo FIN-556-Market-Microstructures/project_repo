@@ -57,10 +57,17 @@ def files_for_day(root: Path, day: date):
     return found
 
 
-def inventory(root: Path, start_et: time, end_et: time):
+def inventory(root: Path, start_et: time, end_et: time, skipped=None):
+    """One row per date folder. Folders whose 8-digit name isn't a real date
+    (e.g. 20250230) are skipped and their names appended to `skipped`."""
     rows = []
     for folder in sorted(p for p in root.iterdir() if p.is_dir() and re.fullmatch(r"\d{8}", p.name)):
-        day = datetime.strptime(folder.name, "%Y%m%d").date()
+        try:
+            day = datetime.strptime(folder.name, "%Y%m%d").date()
+        except ValueError:
+            if skipped is not None:
+                skipped.append(folder.name)
+            continue
         files = files_for_day(root, day)
         slots = window_slots(day, start_et, end_et)
         have = [s for s in slots if s in files]
@@ -97,7 +104,10 @@ def main(argv=None) -> int:
     if not root.is_dir():
         print(f"error: {root} is not a folder", file=sys.stderr)
         return 2
-    rows = inventory(root, parse_hhmm(args.start_et), parse_hhmm(args.end_et))
+    skipped = []
+    rows = inventory(root, parse_hhmm(args.start_et), parse_hhmm(args.end_et), skipped)
+    if skipped:
+        print(f"skipped {len(skipped)} folder(s) whose name is not a valid date: {' '.join(skipped)}\n")
     if not rows:
         print(f"error: no YYYYMMDD folders under {root}", file=sys.stderr)
         return 2
