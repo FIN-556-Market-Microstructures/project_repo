@@ -15,10 +15,10 @@ __pycache__/
 *.log
 site/
 # pipeline outputs (real data never goes in git)
-data/raw/
-data/bronze/
-data/silver/
-data/gold/
-data/logs/
-data/signals/
-models/
+/data/raw/
+/data/bronze/
+/data/silver/
+/data/gold/
+/data/logs/
+/data/signals/
+/models/

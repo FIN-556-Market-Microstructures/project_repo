@@ -116,7 +116,7 @@ def evaluate(model, data: Dataset, train_mean: float = 0.0, pred=None) -> Dict[s
     return out
 
 
-def evaluate_by_day(model, data: Dataset, train_mean: float = 0.0):
+def evaluate_by_day(model, data: Dataset, train_mean: float = 0.0, pred=None):
     """Score each day separately (needs data.meta["date"]).
 
     Returns (per_day, summary): per_day has one row per date; summary has the
@@ -125,7 +125,7 @@ def evaluate_by_day(model, data: Dataset, train_mean: float = 0.0):
     one or two days shows up here and not in a pooled score."""
     if data.meta is None or "date" not in data.meta:
         raise ValueError("evaluate_by_day needs data.meta['date']")
-    pred = np.asarray(model.predict(data.X), dtype=float)
+    pred = np.asarray(model.predict(data.X) if pred is None else pred, dtype=float)
     dates = np.asarray(data.meta["date"])
     rows = []
     for d in sorted(set(dates)):

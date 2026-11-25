@@ -116,10 +116,30 @@ python scripts/data_quality.py /dev/shm/fin556/silver --markdown --csv quality_a
 - **Question:** Does OFI predict NVDA mid-price changes out of sample, and at
   which horizons? First, replicate the contemporaneous Cont–Kukanov–Stoikov
   regression as a sanity check.
-- **Spec:** OLS with Newey-West errors per horizon, on T3 features (100 ms).
-  Fit on the frozen training days, compare feature sets on validation, then
-  score **once** on the test days (April). Split: `SPLIT` in
-  `src/ofi/dataset.py` (guide §4.5).
+- **Data:** the 61 gold days at 100 ms (E9); frozen split (train 3 Feb – 14
+  Mar, validate 17–31 Mar, test April). Rows where the 5 s label is blank (the
+  last 5 s before 16:00) are dropped, so every horizon uses the same rows.
+- **Spec** (`scripts/run_linear.py`, ticket T5):
+    1. **Contemporaneous:** per training day, mid change over non-overlapping
+       1 s and 10 s intervals regressed on level-1 (and all-level) OFI over the
+       same interval.
+    2. **Predictive:** one regression per horizon (10 ms – 5 s) for four
+       feature sets: `ofi_l1_100ms` (classic), `ofi_l1_windows` (level-1 OFI
+       over 4 windows), `ofi_all` (all levels and windows), `all` (every
+       feature). OLS with Newey-West t-stats for the two small sets; ridge for
+       the two large ones, strength chosen on validation.
+    3. Each chosen setting is refit on train + validation and scored **once**
+       on April: pooled, per day, and half-spread metrics.
+- **Commands:**
+
+```bash
+mkdir -p /dev/shm/fin556/gold && rclone copy box:fin556/gold /dev/shm/fin556/gold --transfers 8
+python scripts/run_linear.py --gold /dev/shm/fin556/gold --out results/e4 2>&1 | tee e4.log
+```
+
+- **Expected:** contemporaneous R² large (corr +0.63 on one day, E9);
+  predictive out-of-sample R² tiny (well under 1%), largest around 100 ms and
+  fading by 5 s; hit rates slightly above 50%.
 - **Results:** —
 
 ---
