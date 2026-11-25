@@ -1,5 +1,7 @@
 # Order Flow Imbalance and Short-Term Price Prediction
 
+**Project site:** https://fin-556-market-microstructures.github.io/project_repo/ (guide, experiments log, status)
+
 ## About the Project
 
 This is a group project for FIN 556 at the University of Illinois Urbana-Champaign.
