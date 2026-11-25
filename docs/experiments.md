@@ -10,9 +10,11 @@ row to the index.
 | E0 | [Data pipeline](#e0-data-pipeline) | :hourglass: Parser and streamer done; book rebuild and features not started |
 | E1 | [Streamer on real NVDA data](#e1-streamer-on-real-nvda-data) | :white_check_mark: Time order holds; capture − exchange latency median 167.5 µs, as expected |
 | E2 | [Evaluation harness on synthetic features](#e2-evaluation-harness-on-synthetic-features) | :white_check_mark: Recovers the planted signal (R² 0.09 at 10 ms, ~0 by 1 s) |
-| E3 | [Linear OFI baseline on real NVDA](#e3-linear-ofi-baseline-on-real-nvda) | :white_circle: Not started (needs E0 features) |
-| E4 | [Gradient-boosted model vs. linear](#e4-gradient-boosted-model-vs-linear) | :white_circle: Not started |
-| E5 | [Trading costs and latency](#e5-trading-costs-and-latency) | :white_circle: Not started |
+| E3 | [Real data quality (study days)](#e3-real-data-quality-study-days) | :hourglass: Pipeline built and tested (T2); waiting for the VM run |
+| E4 | [Linear OFI baseline on real NVDA](#e4-linear-ofi-baseline-on-real-nvda) | :white_circle: Not started (T5) |
+| E5 | [Gradient-boosted model vs. linear](#e5-gradient-boosted-model-vs-linear) | :white_circle: Not started (T6) |
+| E6 | [Evaluation and robustness](#e6-evaluation-and-robustness) | :white_circle: Not started (T7) |
+| E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :white_circle: Not started (final step, after T8) |
 
 ---
 
@@ -127,32 +129,65 @@ python -m streamer data/bronze --symbol NVDA --max-batches 5
 
 ---
 
-## E3: Linear OFI baseline on real NVDA
+## E3: Real data quality (study days)
 
-- **Question:** Does level-1 OFI predict NVDA mid-price changes out of
-  sample, and at which horizons?
-- **Spec:** same as E2, on real features. Split on whole days in time order.
-- **Command:** `python -m ofi.baseline --features data/gold/features_NVDA_<date>.parquet`
-- **Needs:** E0 book rebuild and features.
+- **Question:** Which days of NVDA data are complete and clean enough to
+  study, parsed from the session open so every order is known?
+- **Steps:**
+
+```bash
+# 1. which days are complete (04:00-16:10 ET window, DST-aware)
+python scripts/inventory_pcaps.py /db_pcaps/xnas_pcaps --csv data/inventory.csv
+
+# 2. build the chosen days: link -> parse -> convert -> book -> quality (resumable)
+python scripts/build_days.py /db_pcaps/xnas_pcaps --dates <YYYYMMDD ...> --jobs 4
+
+# 3. summary table (paste the Markdown version below)
+python scripts/data_quality.py data/silver --markdown --csv data/quality.csv
+```
+
+- **Expected:** no missing files or sequence gaps; executes/cancels/deletes
+  with no side ≈ 0% (vs 18% when starting at 09:30, E1); unknown orders ≈ 0;
+  0 crossed snapshots; capture − exchange latency median ≈ 167 µs.
+- **Study days:** —
 - **Result:** —
 
 ---
 
-## E4: Gradient-boosted model vs. linear
+## E4: Linear OFI baseline on real NVDA
+
+- **Question:** Does OFI predict NVDA mid-price changes out of sample, and at
+  which horizons? First, replicate the contemporaneous Cont–Kukanov–Stoikov
+  regression as a sanity check.
+- **Spec:** OLS with Newey-West errors per horizon, on T3 features, walk-forward
+  splits by whole day (T4).
+- **Result:** —
+
+---
+
+## E5: Gradient-boosted model vs. linear
 
 - **Question:** Does a nonlinear model (LightGBM) beat the linear baseline
   at any horizon?
-- **Spec:** same features, split and scorer (`ofi.evaluation.evaluate`) as
-  E3, so the results tables line up.
-- **Script:** `src/ofi/models/gbm.py` (to build).
+- **Spec:** same features, splits and scorer (`ofi.evaluation.evaluate`) as
+  E4, tuned on validation days only.
 - **Result:** —
 
 ---
 
-## E5: Trading costs and latency
+## E6: Evaluation and robustness
 
-- **Question:** Does any predictive edge from E3/E4 survive the bid-ask
-  spread, fees, slippage and execution latency?
-- **Spec:** to be decided. Use `capture_ts` (when we see data at NY4) plus
-  an order-entry delay for the latency model, not exchange time.
+- **Question:** Is the edge statistically significant (Diebold-Mariano,
+  day-level bootstrap) and stable across days, time of day, spread,
+  volatility and activity?
+- **Result:** —
+
+---
+
+## E7: Trading costs and latency (backtest)
+
+- **Question:** Does any predictive edge survive the bid-ask spread, fees,
+  slippage and execution latency?
+- **Spec:** starts from the T8 signal files. Use `capture_ts_ns` (when we see
+  data at NY4) plus an order-entry delay for latency, not exchange time.
 - **Result:** —

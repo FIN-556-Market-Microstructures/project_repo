@@ -203,6 +203,22 @@ What to look for in the summary:
   parsed correctly.
 - `missing side` well above 0% on a mid-session file, as explained above.
 
+#### Building whole study days (T2)
+
+`scripts/build_days.py` turns raw captures into silver Parquet for whole
+days: link the 04:00–16:10 ET files → parse → convert → rebuild book →
+quality checks. Each step is skipped if its output exists, so re-running
+resumes. Days run in parallel with `--jobs` (each parser needs up to ~8 GB
+RAM). Use `--parser-bin ./itch_parser` for the faster C++ parser. Commands
+and expected results are in [E3](experiments.md#e3-real-data-quality-study-days).
+
+| Output | Path |
+|---|---|
+| links to the day's captures | `data/raw/<date>/` |
+| parser CSV and log | `data/bronze/<date>/`, `data/logs/<date>_parse.log` |
+| messages, trades, book | `data/silver/nvda_<date>_{messages,trades,book}.parquet` |
+| book stats, quality checks | `data/silver/nvda_<date>_{book_stats,quality}.json` |
+
 ### 4.3 Synthetic data
 
 `scripts/generate_nvda_synthetic.py` simulates NVDA order events and 1 ms book
