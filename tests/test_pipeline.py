@@ -86,6 +86,8 @@ def test_build_day_produces_all_silver_files(built):
     book = pd.read_parquet(silver / "aapl_20250203_book.parquet")
     assert book["bid_sz_1"].tolist()[:2] == [500, 300]
     assert "72 slot(s) MISSING" in res.stdout          # only the 09:30 file exists in the window
+    assert not (data / "bronze" / "20250203").exists()   # parser CSV deleted after conversion
+    assert not list(silver.glob("*.tmp*"))               # no temporary files left behind
 
 
 def test_quality_json_has_the_checks(built):

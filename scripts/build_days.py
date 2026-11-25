@@ -9,6 +9,8 @@ so an interrupted run resumes where it stopped):
             -> data/raw/<date>/
   2. parse  parser/itch_parser.py (or the C++ binary with --parser-bin)
             -> data/bronze/<date>/itch_orders_all.csv, log in data/logs/<date>_parse.log
+            (deleted after step 3 unless --keep-bronze: it is large and only an
+            intermediate; the silver Parquet holds the same data)
   3. convert to the shared schema
             -> data/silver/<prefix>_messages.parquet, <prefix>_trades.parquet
   4. book   rebuild the order book (ofi.book)
@@ -96,25 +98,33 @@ def build_day(day: str, args) -> dict:
         raise RuntimeError(f"no capture files for {day} in the {args.start_et}-{args.end_et} ET window")
     log(day, f"linked {linked} file(s)" + (f", {len(missing)} slot(s) MISSING" if missing else ""))
 
-    # 2. parse
-    done_flag = bronze_dir / ".done"
-    if not done_flag.exists():
-        shutil.rmtree(bronze_dir, ignore_errors=True)
-        cmd = ([args.parser_bin] if args.parser_bin else [sys.executable, str(ROOT / "parser" / "itch_parser.py")])
-        cmd += [str(raw_dir), "--tickers", args.tickers, "--outdir", str(bronze_dir)]
-        log(day, f"parsing ({'C++' if args.parser_bin else 'Python'}) ...")
-        t0 = time.time()
-        with open(parse_log, "w") as f:
-            subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, check=True)
-        done_flag.write_text("ok\n")
-        log(day, f"parsed in {(time.time() - t0) / 60:.1f} min")
-
-    # 3. convert
+    # 2. parse + 3. convert (skipped once the silver messages/trades exist, so the
+    #    bronze CSV can be deleted after conversion and the day still resumes)
     if not (paths["messages"].exists() and paths["trades"].exists()):
+        done_flag = bronze_dir / ".done"
+        if not done_flag.exists() or not any(bronze_dir.glob("*.csv")):
+            shutil.rmtree(bronze_dir, ignore_errors=True)
+            cmd = ([args.parser_bin] if args.parser_bin else [sys.executable, str(ROOT / "parser" / "itch_parser.py")])
+            cmd += [str(raw_dir), "--tickers", args.tickers, "--outdir", str(bronze_dir)]
+            log(day, f"parsing ({'C++' if args.parser_bin else 'Python'}) ...")
+            t0 = time.time()
+            with open(parse_log, "w") as f:
+                subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, check=True)
+            done_flag.write_text("ok\n")
+            log(day, f"parsed in {(time.time() - t0) / 60:.1f} min")
+
         t0 = time.time()
-        written = convert([bronze_dir], silver, prefix, trades=True, overwrite=True)
+        # write under a temporary prefix, rename when complete: an interrupted
+        # conversion never leaves a file that looks finished
+        written = convert([bronze_dir], silver, prefix + ".tmp", trades=True, overwrite=True)
+        for t in ("messages", "trades"):
+            (silver / f"{prefix}.tmp_{t}.parquet").replace(paths[t])
         log(day, f"converted in {time.time() - t0:.0f}s: " +
-            ", ".join(f"{Path(p).stem} {n:,}" for p, n in written.items()))
+            ", ".join(f"{Path(p).stem.replace('.tmp', '')} {n:,}" for p, n in written.items()))
+        if not args.keep_bronze:
+            size = sum(f.stat().st_size for f in bronze_dir.glob("*.csv")) / 1e9
+            shutil.rmtree(bronze_dir, ignore_errors=True)
+            log(day, f"deleted parser CSV ({size:.1f} GB); pass --keep-bronze to keep it")
 
     # 4. book
     if not (paths["book"].exists() and book_stats_path.exists()):
@@ -167,6 +177,8 @@ def main(argv=None) -> int:
     ap.add_argument("--jobs", type=int, default=1, help="days to build in parallel")
     ap.add_argument("--parser-bin", help="path to the C++ itch_parser binary (default: Python parser)")
     ap.add_argument("--force", action="store_true", help="redo every step for these days")
+    ap.add_argument("--keep-bronze", action="store_true",
+                    help="keep the parser CSV after conversion (default: delete it to save disk)")
     args = ap.parse_args(argv)
     if args.from_ and not args.to:
         ap.error("--from needs --to")
