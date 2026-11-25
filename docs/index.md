@@ -17,7 +17,7 @@ slippage and latency? Finding that it does not is also a valid result.
 | Data | Shared schema (Ticket 2) | :hourglass: Proposed ([schema](schema.md)), waiting for team 👍; synthetic data converted |
 | Data | Study data: 61 full trading days (Feb–Apr 2025) parsed, rebuilt and quality-checked ([E3](experiments.md#e3-real-data-quality-study-days)) | :white_check_mark: Done: 0 missing sides, 0 crossed books, 0 gaps; 13.4 GiB in Box |
 | Data | Order book reconstruction from ITCH events | :white_check_mark: Done: exact match on synthetic; real NVDA file 0 crossed/locked, 149k msgs/s |
-| Features | OFI, queue imbalance, trade sign, `ret_<h>ms` labels | :white_circle: Not started |
+| Features | OFI (levels 1–5, 4 windows), imbalances, trades, activity, volatility; `ret_<h>ms` labels | :white_check_mark: Done: 61 days × 234,000 rows at 100 ms (14.3M rows, 1.09 GiB in Box) |
 | Models | Linear OFI baseline + shared evaluation harness | :white_check_mark: Harness done, checked on synthetic data ([E2](experiments.md#e2-evaluation-harness-on-synthetic-features)) |
 | Models | Gradient-boosted model | :white_circle: Not started |
 | Costs | Spread, fees, slippage, latency evaluation | :white_circle: Not started |
@@ -28,7 +28,8 @@ slippage and latency? Finding that it does not is also a valid result.
 |---|---|
 | [Project guide](PROJECT_GUIDE.md) | Repository layout, pipeline stages, how to run things |
 | [Shared schema](schema.md) | The three tables every stage reads and writes: messages, book, trades |
-| [Experiments](experiments.md) | Every experiment we have run: what, how, results, status |
+| [Experiments](experiments.md) | Every experiment: question, data, commands, status |
+| [Results](results.md) | What we found: key findings and each experiment's results |
 
 ## Quick start
 

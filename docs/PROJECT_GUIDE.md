@@ -230,24 +230,43 @@ can be checked against the synthetic one.
 
 ### 4.4 Features table (input to every model)
 
-Defined in [`src/ofi/schema.py`](https://github.com/FIN-556-Market-Microstructures/project_repo/blob/main/src/ofi/schema.py). One row per observation:
+Built by `src/ofi/features.py` from one day's `book` + `trades`; the column
+list is `FEATURE_COLS` in
+[`src/ofi/schema.py`](https://github.com/FIN-556-Market-Microstructures/project_repo/blob/main/src/ofi/schema.py).
+One row per observation; every predictor uses only data at or before t (a
+test cuts off the future and checks nothing changes).
 
-| column | meaning |
+- **Sampling:** `sample="event"` (one row per top-5 change, ~6.5M rows per
+  NVDA day) or a clock grid such as `"100ms"` (~234k rows per day, the
+  default for modelling). OFI is summed over every event in each window, so
+  clock sampling loses nothing.
+- **Rows:** regular hours only (09:30–16:00 ET); windows may use earlier data.
+  `drop_edges_min` drops the first/last minutes if wanted.
+
+| Columns | Meaning |
 |---|---|
-| `ts_ns` | exchange timestamp, int ns since epoch UTC (as in the shared schema) |
-| `ofi` | order flow imbalance (Cont, Kukanov & Stoikov 2014), level 1 |
-| `queue_imb` | level-1 queue imbalance |
-| `trade_sign` | +1 buyer-initiated, −1 seller-initiated, 0 no trade |
-| `ret_<h>ms` | mid(t + h) − mid(t) for h in `HORIZONS_MS` = 10, 50, 100, 500, 1000, 5000 |
+| `ts_ns`, `symbol` | observation time, ticker |
+| `mid`, `spread`, `bid/ask_px_1`, `bid/ask_sz_1` | state at t (for labels and the backtest; not predictors) |
+| `ofi_l<k>_<w>`, `ofi_ml_<w>` | OFI at level k = 1..5 and summed over all 5, over w ∈ {10 ms, 100 ms, 1 s, 5 s} |
+| `queue_imb`, `depth_imb_5`, `spread_ticks` | level-1 and top-5 imbalance, spread in ticks |
+| `signed_vol_<w>`, `n_trades_<w>` | buyer − seller initiated volume and trade count (hidden trades count as 0) |
+| `n_events_<w>`, `vol_<w>` | book activity, realised volatility of mid changes |
+| `tod_min` | minutes since 09:30 ET |
+| `ofi`, `trade_sign` | aliases used by the linear baseline |
+| `ret_<h>ms` | label: mid(t + h) − mid(t) in dollars, h ∈ 10, 50, 100, 500, 1000, 5000 ms; blank after 16:00 |
 
-OFI for one step, using best bid `b` (size `qb`) and best ask `a` (size `qa`),
-with `'` marking the previous snapshot:
+OFI for one event at level k, with `'` marking the previous book state:
 
 ```
 e = 1[b >= b'] * qb  -  1[b <= b'] * qb'  -  1[a <= a'] * qa  +  1[a >= a'] * qa'
 ```
 
-Save features as Parquet, e.g. `data/gold/features_NVDA_20250203.parquet`.
+Build features for whole days (silver in Box → gold in Box, in RAM):
+
+```bash
+python scripts/build_features.py --source box:fin556/silver --dest box:fin556/gold \
+    --from 20250203 --to 20250430 --sample 100ms --jobs 6
+```
 
 ### 4.5 Models and evaluation
 
@@ -290,10 +309,11 @@ Then score it at each horizon the same way `run_horizons` in
    (README, *Team Workflow*). Put them in the PR description or under
    `docs/ai_logs/`.
 6. When you run something whose result matters (a check on real data, a
-   model fit, a cost study), record it in [Experiments](experiments.md):
-   the question, data, exact commands, a results table and what it means.
-   Update the status in the index table at the top. Preview the site with
-   `mkdocs serve`.
+   model fit, a cost study), record **how** it was run in
+   [Experiments](experiments.md) (question, data, exact commands, status) and
+   **what it found** in [Results](results.md) (tables and interpretation). Add
+   a line to the key findings at the top of Results if it changes the story.
+   Preview the site with `mkdocs serve`.
 
 ## 6. What is left to build
 
@@ -306,7 +326,7 @@ Mapped to the README's planned approach:
 | 2a | Shared schema (Ticket 2) | proposed, waiting for team 👍 | [`docs/schema.md`](schema.md), `src/streamer/schema.py` |
 | 2b | Data streamer: time-ordered batched reader | done (needs review) | `src/streamer/` |
 | 3 | Book reconstruction: messages → book (top 5 levels), event by event | done (exact on synthetic; 0 crossed on real NVDA, 149k msgs/s on the VM) | `src/ofi/book.py` |
-| 4 | Features: OFI, queue imbalance, trade sign, plus `ret_<h>ms` labels, written to Parquet in the §4.4 schema | to do | `src/ofi/features.py` |
+| 4 | Features + labels (OFI levels 1–5 over 4 windows, imbalances, trades, activity, volatility, time of day) | done: 61 days at 100 ms (14.3M rows) in Box `fin556/gold` | `src/ofi/features.py`, `scripts/build_features.py` |
 | 5 | Linear baseline + shared evaluation harness | done | `src/ofi/models/linear.py`, `src/ofi/evaluation.py` |
 | 6 | Gradient-boosted model compared with the baseline across horizons | to do | `src/ofi/models/gbm.py` |
 | 7 | Cost and latency evaluation: does the edge survive spread, fees, slippage and latency? | to do | `src/ofi/costs.py` |
