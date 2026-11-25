@@ -18,7 +18,17 @@ so an interrupted run resumes where it stopped):
   5. quality per-day checks (scripts/data_quality.py)
             -> data/silver/<prefix>_quality.json
 
-Days run in parallel (--jobs). Each parser needs up to ~8 GB RAM per file.
+  6. upload (optional, --upload REMOTE:path) copy the day's silver files to
+            cloud storage with rclone (e.g. UIUC Box), verify, then delete the
+            big local files; a small <prefix>_uploaded marker stays so reruns
+            skip the day
+
+Days run in parallel (--jobs). The Python parser needs up to ~8 GB RAM per
+file; the C++ parser (--parser-bin ./itch_parser) much less.
+
+With little disk space, build in RAM and upload each finished day:
+    python scripts/build_days.py /db_pcaps/xnas_pcaps --dates 20250203 \
+        --parser-bin ./itch_parser --data /dev/shm/fin556 --upload box:fin556/silver
 
     python scripts/build_days.py /db_pcaps/xnas_pcaps --dates 20250203 20250204 --jobs 4
     python scripts/build_days.py /db_pcaps/xnas_pcaps --from 20250203 --to 20250228 --jobs 6
@@ -27,6 +37,7 @@ Days run in parallel (--jobs). Each parser needs up to ~8 GB RAM per file.
 import argparse
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -69,6 +80,26 @@ def link_files(root: Path, day: str, raw_dir: Path, start_et, end_et):
     return linked, missing
 
 
+def rclone(args, *rclone_args) -> subprocess.CompletedProcess:
+    cmd = shlex.split(args.rclone) + list(rclone_args)
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def upload_day(day: str, args, silver: Path, prefix: str, big_files) -> None:
+    """Copy the day's silver files to args.upload, verify, delete the big local files."""
+    include = f"{prefix}_*"
+    res = rclone(args, "copy", str(silver), args.upload, "--include", include)
+    if res.returncode != 0:
+        raise RuntimeError(f"rclone copy failed: {res.stderr.strip()[-500:]}")
+    res = rclone(args, "check", str(silver), args.upload, "--one-way", "--include", include)
+    if res.returncode != 0:
+        raise RuntimeError(f"upload check failed, local files kept: {res.stderr.strip()[-500:]}")
+    size = sum(p.stat().st_size for p in big_files if p.exists()) / 1e9
+    for p in big_files:
+        p.unlink(missing_ok=True)
+    log(day, f"uploaded to {args.upload} and verified; freed {size:.2f} GB locally")
+
+
 def build_day(day: str, args) -> dict:
     from streamer import stream
     from streamer.convert import _Writer, convert
@@ -85,11 +116,15 @@ def build_day(day: str, args) -> dict:
     book_stats_path = silver / f"{prefix}_book_stats.json"
     quality_path = silver / f"{prefix}_quality.json"
     parse_log = logs / f"{day}_parse.log"
+    uploaded_flag = silver / f"{prefix}_uploaded"
 
     if args.force:
-        for p in [*paths.values(), book_stats_path, quality_path]:
+        for p in [*paths.values(), book_stats_path, quality_path, uploaded_flag]:
             p.unlink(missing_ok=True)
         shutil.rmtree(bronze_dir, ignore_errors=True)
+    if args.upload and uploaded_flag.exists():
+        log(day, f"already uploaded ({uploaded_flag.name}); skipping")
+        return json.loads(quality_path.read_text()) if quality_path.exists() else {"date": day}
 
     # 1. link
     linked, missing = link_files(Path(args.root), day, raw_dir,
@@ -145,6 +180,12 @@ def build_day(day: str, args) -> dict:
     # 5. quality
     q = data_quality.day_quality(day, paths, book_stats_path, parse_log, missing_slots=len(missing))
     quality_path.write_text(json.dumps(q, indent=2) + "\n")
+
+    # 6. upload: the small JSON files stay locally (quality summary still works)
+    if args.upload:
+        upload_day(day, args, silver, prefix, list(paths.values()))
+        uploaded_flag.write_text(f"{args.upload}\n")
+        shutil.rmtree(raw_dir, ignore_errors=True)
     log(day, f"done in {(time.time() - t_day) / 60:.1f} min")
     return q
 
@@ -177,6 +218,10 @@ def main(argv=None) -> int:
     ap.add_argument("--jobs", type=int, default=1, help="days to build in parallel")
     ap.add_argument("--parser-bin", help="path to the C++ itch_parser binary (default: Python parser)")
     ap.add_argument("--force", action="store_true", help="redo every step for these days")
+    ap.add_argument("--upload", metavar="REMOTE:PATH",
+                    help="after each day, rclone-copy its silver files here (e.g. box:fin556/silver), "
+                         "verify, and delete them locally")
+    ap.add_argument("--rclone", default="rclone", help="rclone command (default: rclone on PATH)")
     ap.add_argument("--keep-bronze", action="store_true",
                     help="keep the parser CSV after conversion (default: delete it to save disk)")
     args = ap.parse_args(argv)

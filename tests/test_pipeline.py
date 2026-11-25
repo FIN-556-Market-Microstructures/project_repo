@@ -121,3 +121,41 @@ def test_missing_day_fails_cleanly(tmp_path):
     res = run([SCRIPTS / "build_days.py", tmp_path, "--dates", "20250203", "--data", tmp_path / "data"])
     assert res.returncode == 1
     assert "no capture files" in res.stdout
+
+
+# --------------------------------------------------------------------------- upload (rclone, e.g. UIUC Box)
+
+def build_with_upload(tmp_path, env_extra=None):
+    import os
+    subprocess.run([sys.executable, str(ROOT / "parser" / "make_test_capture.py")], cwd=tmp_path,
+                   check=True, capture_output=True)
+    fake = f'"{sys.executable}" "{ROOT / "tests" / "fake_rclone.py"}"'
+    cmd = [SCRIPTS / "build_days.py", tmp_path / "testdata", "--dates", "20250203", "--tickers", "AAPL",
+           "--data", tmp_path / "data", "--upload", tmp_path / "remote", "--rclone", fake]
+    return run(cmd, env={**os.environ, **(env_extra or {})}), tmp_path / "data" / "silver", tmp_path / "remote"
+
+
+def test_upload_copies_verifies_and_frees_local_space(tmp_path):
+    res, silver, remote = build_with_upload(tmp_path)
+    assert res.returncode == 0, res.stdout + res.stderr
+    names = {p.name for p in remote.iterdir()}
+    assert {f"aapl_20250203_{t}.parquet" for t in ("messages", "trades", "book")} <= names
+    assert "aapl_20250203_quality.json" in names
+    # big files gone locally, small JSONs and the marker kept
+    assert not list(silver.glob("*.parquet"))
+    assert (silver / "aapl_20250203_quality.json").exists()
+    assert (silver / "aapl_20250203_uploaded").exists()
+    assert "uploaded to" in res.stdout and "verified" in res.stdout
+
+    again = run([SCRIPTS / "build_days.py", tmp_path / "testdata", "--dates", "20250203", "--tickers", "AAPL",
+                 "--data", tmp_path / "data", "--upload", remote, "--rclone",
+                 f'"{sys.executable}" "{ROOT / "tests" / "fake_rclone.py"}"'])
+    assert again.returncode == 0 and "already uploaded" in again.stdout
+
+
+def test_failed_upload_check_keeps_local_files(tmp_path):
+    res, silver, _ = build_with_upload(tmp_path, {"FAKE_RCLONE_FAIL": "check"})
+    assert res.returncode == 1
+    assert "upload check failed, local files kept" in res.stdout
+    assert len(list(silver.glob("*.parquet"))) == 3
+    assert not (silver / "aapl_20250203_uploaded").exists()
