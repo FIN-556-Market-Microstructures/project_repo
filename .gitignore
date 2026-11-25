@@ -1,4 +1,5 @@
 itch_parser
+itch_parser.exe
 *.o
 out*/
 testdata/
