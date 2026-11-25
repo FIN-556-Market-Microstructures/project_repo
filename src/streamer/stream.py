@@ -18,7 +18,8 @@ import pyarrow as pa
 import pyarrow.csv as pacsv
 import pyarrow.parquet as pq
 
-from .schema import CSV_COLUMN_TYPES, MARKET_TZ, SYMBOL, TS, VENUE, detect_layout, to_shared_schema
+from .schema import (CSV_COLUMN_TYPES, MARKET_TZ, SYMBOL, TS, VENUE, detect_layout, table_of,
+                     to_shared_schema, trades_from_messages)
 
 PathLike = Union[str, Path]
 TimeLike = Union[str, pd.Timestamp, None]
@@ -31,7 +32,8 @@ def stream(path: Union[PathLike, Iterable[PathLike]],
            end: TimeLike = None,
            batch_size: int = 100_000,
            symbol: Union[str, Iterable[str], None] = None,
-           venue: Union[str, Iterable[str], None] = None) -> Iterator[pd.DataFrame]:
+           venue: Union[str, Iterable[str], None] = None,
+           table: Optional[str] = None) -> Iterator[pd.DataFrame]:
     """Yield pandas DataFrames of at most `batch_size` rows, in timestamp order.
 
     path        a file, a folder (searched recursively for .parquet/.csv), or a
@@ -42,23 +44,28 @@ def stream(path: Union[PathLike, Iterable[PathLike]],
     batch_size  rows per yielded batch (the last batch may be smaller)
     symbol      optional ticker or list of tickers to keep, e.g. "NVDA"
     venue       optional venue or list of venues to keep: "XNAS", "GLBX"
+    table       None: yield whatever table the files hold (messages or book).
+                "trades": derive the trades table from message files.
 
-    Every batch is in the shared schema (see streamer.schema). It always starts
-    with ts (exchange time, UTC), capture_ts, venue and symbol, and is
-    ordered by ts.
+    Every batch is one table of the shared schema (docs/schema.md): messages,
+    book or trades, starting with ts_ns (exchange time, int ns since epoch UTC)
+    and symbol, and ordered by ts_ns. All files must hold the same table.
     """
+    if table not in (None, "trades"):
+        raise ValueError('table must be None or "trades"')
     if batch_size < 1:
         raise ValueError("batch_size must be positive")
     files = _find_files(path)
     if not files:
         raise FileNotFoundError(f"no .parquet or .csv files found at {path}")
 
-    start_ts, end_ts = _to_utc(start), _to_utc(end)
+    start_ts, end_ts = _to_ns(start), _to_ns(end)
     if start_ts is not None and end_ts is not None and start_ts >= end_ts:
         raise ValueError("start must be before end")
     filters = {col: _as_set(v) for col, v in ((SYMBOL, symbol), (VENUE, venue)) if v is not None}
 
-    readers = [_read_file(f, batch_size, start_ts, end_ts, filters) for f in files]
+    tables = set()                      # tables seen across files; must end up as one
+    readers = [_read_file(f, batch_size, start_ts, end_ts, filters, table, tables) for f in files]
     yield from _rebatch(_merge(readers), batch_size)
 
 
@@ -83,11 +90,15 @@ def _as_set(v) -> set:
     return {v} if isinstance(v, str) else set(v)
 
 
-def _to_utc(t: TimeLike) -> Optional[pd.Timestamp]:
+def _to_ns(t: TimeLike) -> Optional[int]:
+    """Filter bound -> int ns since epoch. Naive times are market time (ET);
+    plain integers are taken as ns already."""
     if t is None:
         return None
+    if isinstance(t, (int,)) and not isinstance(t, bool):
+        return int(t)
     t = pd.Timestamp(t)
-    return (t.tz_localize(MARKET_TZ) if t.tz is None else t).tz_convert("UTC")
+    return (t.tz_localize(MARKET_TZ) if t.tz is None else t).value
 
 
 def _raw_batches(path: Path, batch_size: int) -> Iterator[pa.RecordBatch]:
@@ -101,7 +112,8 @@ def _raw_batches(path: Path, batch_size: int) -> Iterator[pa.RecordBatch]:
         yield from reader
 
 
-def _read_file(path: Path, batch_size: int, start_ts, end_ts, filters) -> Iterator[pd.DataFrame]:
+def _read_file(path: Path, batch_size: int, start_ts, end_ts, filters, want, tables
+               ) -> Iterator[pd.DataFrame]:
     """Batches from one file, converted to the shared schema and filtered.
     Checks that the file is in time order as it goes."""
     layout = None
@@ -111,6 +123,14 @@ def _read_file(path: Path, batch_size: int, start_ts, end_ts, filters) -> Iterat
             continue
         if layout is None:
             layout = detect_layout(rb.schema.names)
+            produces = table_of(layout)
+            if want == "trades" and produces not in ("messages", "trades"):
+                raise ValueError(f"{path} holds the {produces} table; trades can only be "
+                                 f"derived from messages")
+            tables.add("trades" if want == "trades" else produces)
+            if len(tables) > 1:
+                raise ValueError(f"files hold different tables ({sorted(tables)}); "
+                                 f"stream one table at a time")
         df = to_shared_schema(rb.to_pandas(), layout)
 
         ts = df[TS]
@@ -127,8 +147,12 @@ def _read_file(path: Path, batch_size: int, start_ts, end_ts, filters) -> Iterat
         if end_ts is not None:
             keep &= ts < end_ts
         for col, allowed in filters.items():
+            if col not in df:
+                raise ValueError(f"cannot filter on {col!r}: {path} has no such column")
             keep &= df[col].isin(allowed)
         df = df[keep]
+        if want == "trades" and produces == "messages":
+            df = trades_from_messages(df)
         if not df.empty:
             yield df.reset_index(drop=True)
 

@@ -23,6 +23,7 @@ theme:
 nav:
   - Home: index.md
   - Project guide: PROJECT_GUIDE.md
+  - Shared schema: schema.md
   - Experiments: experiments.md
 
 markdown_extensions:

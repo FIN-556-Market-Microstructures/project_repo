@@ -42,12 +42,12 @@ python -m pytest                     # runs the tests
 
 ## How to Use the Data Streamer
 
-Every part of the project reads market data through `stream()`, which returns batches of rows (pandas DataFrames) in timestamp order. It reads `.parquet` or `.csv` files, a folder of them, or a list. Synthetic data is converted to the shared schema (`ts` in UTC, `symbol`, ...) as it is loaded.
+Every part of the project reads market data through `stream()`, which returns batches of rows (pandas DataFrames) in timestamp order. It reads `.parquet` or `.csv` files, a folder of them, or a list. Every batch is one table of the [shared schema](docs/schema.md) (`messages`, `book` or `trades`), with time as `ts_ns` (integer nanoseconds), prices in dollars and sizes in shares. Raw synthetic and parser files are converted as they are loaded.
 
 ```python
 from streamer import stream
-for batch in stream("data/synthetic", symbol="NVDA", start="2025-02-03 09:30:01", end="2025-02-03 09:30:05", batch_size=10_000):
-    print(batch[["ts", "symbol", "mid_price"]].head())
+for batch in stream("data/synthetic/nvda_book.parquet", symbol="NVDA", start="2025-02-03 09:30:01", end="2025-02-03 09:30:05", batch_size=10_000):
+    print(batch[["ts_ns", "symbol", "bid_px_1", "ask_px_1"]].head())
 ```
 
 Times without a timezone are read as US/Eastern (market time). `start` is inclusive and `end` is exclusive. Files are read one batch at a time, so even large datasets never load into memory all at once.

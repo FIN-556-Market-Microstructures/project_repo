@@ -137,17 +137,23 @@ logic, change both versions and make sure `make test` passes.
 
 ```python
 from streamer import stream
-for batch in stream("data/synthetic", symbol="NVDA", start="2025-02-03 09:30:01",
+for batch in stream("data/synthetic/nvda_book.parquet", symbol="NVDA", start="2025-02-03 09:30:01",
                     end="2025-02-03 09:30:05", batch_size=10_000):
-    ...   # pandas DataFrame, sorted by ts, at most batch_size rows
+    ...   # pandas DataFrame in the shared schema, sorted by ts_ns, at most batch_size rows
 ```
 
 - **Inputs:** `.parquet` (main format) or `.csv`, as a file, a folder
   (searched recursively) or a list.
-- **Layouts recognised** (detected from the columns, see
-  [`src/streamer/schema.py`](https://github.com/FIN-556-Market-Microstructures/project_repo/blob/main/src/streamer/schema.py)): already in the
-  shared schema (`ts` + `venue`), `itch_parser.py` output (`date_et` +
-  `time_et`, ...), or synthetic book snapshots (`timestamp_et`, ...).
+- **Output:** one table of the [shared schema](schema.md): `messages`,
+  `book` or `trades`. Pass `table="trades"` to derive trades from message
+  files.
+- **Layouts recognised** (detected from the columns): already in the shared
+  schema, `itch_parser.py` output (`date_et` + `time_et`, ...), or the
+  synthetic generator's raw CSVs (`timestamp_et`, ...). These are converted
+  on load.
+- **Convert to Parquet:** `python -m streamer.convert` writes any of these
+  out in the shared schema, streaming batch by batch (see
+  [Files](schema.md#files)).
 - **Filters:** `symbol`, `venue` (each one value or a list), `start`
   (inclusive), `end` (exclusive). Times without a timezone are read as
   US/Eastern.
@@ -159,56 +165,12 @@ for batch in stream("data/synthetic", symbol="NVDA", start="2025-02-03 09:30:01"
   into global time order. Each file must itself be time-sorted. An unsorted
   file raises `ValueError` rather than giving misordered output.
 
-#### Shared schema (provisional until Ticket 2 settles it)
+#### Shared schema
 
-Built to fit both raw feeds. **xnas_pcaps** is Nasdaq TotalView-ITCH 5.0,
-captured at NY4. It identifies instruments by ticker. **glbx_pcaps** is CME
-Globex MDP 3.0, captured at/near Aurora. It identifies instruments by
-numeric SecurityID. The schema is defined in
-[`src/streamer/schema.py`](https://github.com/FIN-556-Market-Microstructures/project_repo/blob/main/src/streamer/schema.py), and that is the only
-place to change it.
-
-Every streamed row starts with:
-
-| column | meaning |
-|---|---|
-| `ts` | **exchange** timestamp, UTC, nanoseconds (ITCH timestamp / CME TransactTime). The sort key, and the only clock comparable across venues |
-| `capture_ts` | when our capture box saw the packet, UTC (NaT for synthetic snapshots). Runs ~166 µs behind `ts` at NY4 and ~14 µs (median) at Aurora |
-| `venue` | `XNAS` or `GLBX` |
-| `symbol` | ticker. Blank for market-wide admin messages, and for CME rows until SecurityIDs are mapped with the secdef data |
-
-Event rows (one per exchange message) then have:
-
-| column | ITCH source column | meaning |
-|---|---|---|
-| `instrument_id` | `locate` | ITCH stock locate (**reassigned daily**) / CME SecurityID |
-| `seq` | `seq` | MoldUDP64 sequence / CME RptSeq (per instrument) |
-| `event` | `msg_type` | `ADD`, `EXECUTE`, `CANCEL`, `DELETE`, `REPLACE`, `TRADE`, ... |
-| `order_id` | `order_ref` | exchange order reference |
-| `side` | `side` | `B`/`S`. **Blank** for executes/cancels/deletes of orders added before the data starts |
-| `size` | `shares` | shares (XNAS) or contracts (GLBX) |
-| `price` | `price` | dollars / index points |
-| `match_id` | `match_num` | trade match number |
-| `note` | `note` | message-specific extras |
-
-Book-snapshot rows have `bid_price_k`, `bid_size_k`, `ask_price_k`,
-`ask_size_k` (k = 1..5), `mid_price`, `spread`, `queue_imb`, `ofi`, ... after
-the four core columns.
-
-Why it looks like this:
-
-- **Two clocks.** The feeds are captured at different sites. For any
-  cross-venue (lead-lag) work, align on `ts`. Use `capture_ts` only for
-  latency and fill modelling at one location.
-- **`instrument_id` alongside `symbol`.** CME rows will arrive with a
-  SecurityID before we have the secdef mapping.
-- **Blank `side` is expected** when streaming from mid-session. ITCH
-  cancels and executes carry only the order id, so the side comes from
-  replaying the original add. A complete book needs data from the session
-  open (~04:00 ET).
-- **No CME parser yet.** When one is written it should output this schema
-  directly (layout `shared`), ideally as Parquet sorted by `ts`. It should
-  also de-duplicate the A/B lines if both are captured.
+Defined in **[Shared schema](schema.md)** (Ticket 2): three tables
+(`messages`, `book`, `trades`), time as integer nanoseconds (`ts_ns`,
+exchange clock), prices in dollars, sizes in shares. The code version is
+`src/streamer/schema.py`; change both together.
 
 #### Trying it on real data in the VM
 
@@ -241,30 +203,14 @@ What to look for in the summary:
   parsed correctly.
 - `missing side` well above 0% on a mid-session file, as explained above.
 
-### 4.3 Book snapshots
+### 4.3 Synthetic data
 
-`scripts/generate_nvda_synthetic.py` currently produces synthetic snapshots
-in this format. The real-data book builder (see §6) should output the same
-format so code can be tested on synthetic data first:
-
-| column | meaning |
-|---|---|
-| `timestamp_et` | snapshot time (ET, ISO 8601) |
-| `elapsed_ms` | ms since the session start |
-| `ticker` | symbol |
-| `last_event_seq` | sequence number of the last event included |
-| `bid_price_k`, `bid_size_k`, `ask_price_k`, `ask_size_k` | levels k = 1..5 |
-| `mid_price` | (bid_price_1 + ask_price_1) / 2 |
-| `spread` | ask_price_1 − bid_price_1 |
-| `queue_imbalance_l1` | (bid_size_1 − ask_size_1) / (bid_size_1 + ask_size_1) |
-| `ofi_l1` | level-1 OFI vs. the previous snapshot (blank on the first row) |
-| `synthetic` | `true` for simulated data |
-
-Regenerate the synthetic data (it refuses to overwrite existing files):
-
-```bash
-python scripts/generate_nvda_synthetic.py --outdir data/synthetic_new --duration-ms 10000 --seed 556
-```
+`scripts/generate_nvda_synthetic.py` simulates NVDA order events and 1 ms book
+snapshots (raw CSV, its own column names). The committed copies in the
+shared schema are `data/synthetic/nvda_messages.parquet`, `nvda_book.parquet`
+and `nvda_trades.parquet`; see [Files](schema.md#files) to regenerate them.
+The real-data book rebuild (§6) should produce the same `book` table, so it
+can be checked against the synthetic one.
 
 ### 4.4 Features table (input to every model)
 
@@ -272,7 +218,7 @@ Defined in [`src/ofi/schema.py`](https://github.com/FIN-556-Market-Microstructur
 
 | column | meaning |
 |---|---|
-| `ts` | timestamp (pandas datetime, UTC preferred) |
+| `ts_ns` | exchange timestamp, int ns since epoch UTC (as in the shared schema) |
 | `ofi` | order flow imbalance (Cont, Kukanov & Stoikov 2014), level 1 |
 | `queue_imb` | level-1 queue imbalance |
 | `trade_sign` | +1 buyer-initiated, −1 seller-initiated, 0 no trade |
@@ -284,11 +230,6 @@ with `'` marking the previous snapshot:
 ```
 e = 1[b >= b'] * qb  -  1[b <= b'] * qb'  -  1[a <= a'] * qa  +  1[a >= a'] * qa'
 ```
-
-> **Naming mismatch to resolve:** the snapshot file uses `ofi_l1`,
-> `queue_imbalance_l1` and `timestamp_et`. The models expect `ofi`,
-> `queue_imb` and `ts`. The features step should rename them. Do not change
-> the model code to match the snapshot names.
 
 Save features as Parquet, e.g. `data/gold/features_NVDA_20250203.parquet`.
 
@@ -346,7 +287,7 @@ Mapped to the README's planned approach:
 |---|---|---|---|
 | 1 | Synthetic order book data | done | `scripts/generate_nvda_synthetic.py` |
 | 2 | ITCH parser (Python + C++) | done | `parser/` |
-| 2a | Shared schema (Ticket 2) | in progress; streamer uses a provisional version | `src/streamer/schema.py` |
+| 2a | Shared schema (Ticket 2) | proposed, waiting for team 👍 | [`docs/schema.md`](schema.md), `src/streamer/schema.py` |
 | 2b | Data streamer: time-ordered batched reader | done (needs review) | `src/streamer/` |
 | 3 | Book reconstruction: event table → 5-level snapshots for real NVDA data, chunked by day | to do | `src/ofi/book.py` |
 | 4 | Features: OFI, queue imbalance, trade sign, plus `ret_<h>ms` labels, written to Parquet in the §4.4 schema | to do | `src/ofi/features.py` |
@@ -384,8 +325,7 @@ Open questions for the team:
     (`tests/test_streamer.py`)
   - [x] README has a "How to use" example
 - **Notes / decisions:**
-  - Shared schema is provisional (`ts` UTC + `symbol` + pass-through
-    columns). Reconcile with Ticket 2 before merging.
+  - Now uses the Ticket 2 shared schema ([schema.md](schema.md)).
   - Also reads CSV, because the committed synthetic data is CSV. Real data
     should be Parquet.
   - Times without a timezone mean US/Eastern. `end` is exclusive.

@@ -4,6 +4,7 @@ out*/
 testdata/
 *.csv
 *.parquet
+!data/synthetic/*.parquet
 *.pcap
 *.pcap.zst
 results/

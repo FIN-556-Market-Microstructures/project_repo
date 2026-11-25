@@ -28,7 +28,7 @@ FEATURE_SETS = {
 def load_features(path: str) -> pd.DataFrame:
     if path.endswith(".parquet"):
         return pd.read_parquet(path)
-    return pd.read_csv(path, parse_dates=["ts"])
+    return pd.read_csv(path)
 
 
 def main():
