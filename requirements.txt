@@ -6,3 +6,6 @@ statsmodels
 pytest
 zstandard        # ITCH parser: reads .pcap.zst
 tzdata           # Windows only: time zone data for zoneinfo
+
+# docs site (mkdocs serve / mkdocs build)
+mkdocs-material

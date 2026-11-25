@@ -1,0 +1,36 @@
+site_name: Order Flow Imbalance and Short-Term Price Prediction
+site_description: FIN 556 Market Microstructures project, UIUC
+repo_url: https://github.com/FIN-556-Market-Microstructures/project_repo
+repo_name: project_repo
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Project guide: PROJECT_GUIDE.md
+  - Experiments: experiments.md
+
+markdown_extensions:
+  - tables
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg

@@ -3,7 +3,7 @@
 This guide is for team members who want to start contributing. It covers how
 the repository is laid out, how data moves through the pipeline, what each
 stage expects as input and output, and what is still to be built. The
-[README](../README.md) explains *what* we study and why. This file explains
+[README](https://github.com/FIN-556-Market-Microstructures/project_repo/blob/main/README.md) explains *what* we study and why. This file explains
 *how* the code does it.
 
 Keep this file up to date when you add a stage or change a column name.
@@ -84,6 +84,9 @@ Rules of thumb:
 ## 3. Setup
 
 ```bash
+python3 -m venv .venv                # once, from the repo root (.venv/ is git-ignored)
+source .venv/bin/activate            # every new terminal; Windows: .venv\Scripts\activate
+pip install --upgrade pip
 pip install -r requirements.txt
 pip install -e .
 
@@ -142,7 +145,7 @@ for batch in stream("data/synthetic", symbol="NVDA", start="2025-02-03 09:30:01"
 - **Inputs:** `.parquet` (main format) or `.csv`, as a file, a folder
   (searched recursively) or a list.
 - **Layouts recognised** (detected from the columns, see
-  [`src/streamer/schema.py`](../src/streamer/schema.py)): already in the
+  [`src/streamer/schema.py`](https://github.com/FIN-556-Market-Microstructures/project_repo/blob/main/src/streamer/schema.py)): already in the
   shared schema (`ts` + `venue`), `itch_parser.py` output (`date_et` +
   `time_et`, ...), or synthetic book snapshots (`timestamp_et`, ...).
 - **Filters:** `symbol`, `venue` (each one value or a list), `start`
@@ -162,7 +165,7 @@ Built to fit both raw feeds. **xnas_pcaps** is Nasdaq TotalView-ITCH 5.0,
 captured at NY4. It identifies instruments by ticker. **glbx_pcaps** is CME
 Globex MDP 3.0, captured at/near Aurora. It identifies instruments by
 numeric SecurityID. The schema is defined in
-[`src/streamer/schema.py`](../src/streamer/schema.py), and that is the only
+[`src/streamer/schema.py`](https://github.com/FIN-556-Market-Microstructures/project_repo/blob/main/src/streamer/schema.py), and that is the only
 place to change it.
 
 Every streamed row starts with:
@@ -217,6 +220,7 @@ sides, the capture − exchange latency, and whether time order held. Exit
 code 0 means OK, 1 means out of order, 2 means bad input.
 
 ```bash
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && pip install -e .
 
 # 1. parse a small slice: put one regular-hours file in its own folder
@@ -264,7 +268,7 @@ python scripts/generate_nvda_synthetic.py --outdir data/synthetic_new --duration
 
 ### 4.4 Features table (input to every model)
 
-Defined in [`src/ofi/schema.py`](../src/ofi/schema.py). One row per observation:
+Defined in [`src/ofi/schema.py`](https://github.com/FIN-556-Market-Microstructures/project_repo/blob/main/src/ofi/schema.py). One row per observation:
 
 | column | meaning |
 |---|---|
@@ -328,6 +332,11 @@ Then score it at each horizon the same way `run_horizons` in
 5. For AI-assisted work, save the prompts, outputs and your manual changes
    (README, *Team Workflow*). Put them in the PR description or under
    `docs/ai_logs/`.
+6. When you run something whose result matters (a check on real data, a
+   model fit, a cost study), record it in [Experiments](experiments.md):
+   the question, data, exact commands, a results table and what it means.
+   Update the status in the index table at the top. Preview the site with
+   `mkdocs serve`.
 
 ## 6. What is left to build
 
