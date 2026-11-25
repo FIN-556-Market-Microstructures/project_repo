@@ -12,7 +12,7 @@ row to the index.
 | E1 | [Streamer on real NVDA data](#e1-streamer-on-real-nvda-data) | :white_check_mark: Done | [E1](results.md#e1-streamer-on-real-nvda-data) |
 | E2 | [Evaluation harness on synthetic features](#e2-evaluation-harness-on-synthetic-features) | :white_check_mark: Done | [E2](results.md#e2-evaluation-harness-on-synthetic-features) |
 | E3 | [Real data quality (study days)](#e3-real-data-quality-study-days) | :white_check_mark: Done | [E3](results.md#e3-real-data-quality-study-days) |
-| E4 | [Linear OFI baseline on real NVDA](#e4-linear-ofi-baseline-on-real-nvda) | :white_circle: Not started (T5) | — |
+| E4 | [Linear OFI baseline on real NVDA](#e4-linear-ofi-baseline-on-real-nvda) | :white_check_mark: Done | [E4](results.md#e4-linear-ofi-baseline-on-real-nvda) |
 | E5 | [Gradient-boosted model vs. linear](#e5-gradient-boosted-model-vs-linear) | :white_circle: Not started (T6) | — |
 | E6 | [Evaluation and robustness](#e6-evaluation-and-robustness) | :white_circle: Not started (T7) | — |
 | E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :white_circle: Not started (final step, after T8) | — |
@@ -140,7 +140,7 @@ python scripts/run_linear.py --gold /dev/shm/fin556/gold --out results/e4 2>&1 |
 - **Expected:** contemporaneous R² large (corr +0.63 on one day, E9);
   predictive out-of-sample R² tiny (well under 1%), largest around 100 ms and
   fading by 5 s; hit rates slightly above 50%.
-- **Results:** —
+- **Results:** [Results → E4](results.md#e4-linear-ofi-baseline-on-real-nvda)
 
 ---
 
