@@ -14,7 +14,7 @@ slippage and latency? Finding that it does not is also a valid result.
 | Data | Synthetic order book data | :white_check_mark: Done |
 | Data | ITCH 5.0 parser (Python + C++) | :white_check_mark: Done |
 | Data | Data streamer: time-ordered batched reader | :white_check_mark: Done, checked on real NVDA data ([E1](experiments.md#e1-streamer-on-real-nvda-data)) |
-| Data | Shared schema (Ticket 2) | :hourglass: In progress (streamer uses a provisional version) |
+| Data | Shared schema (Ticket 2) | :hourglass: Proposed ([schema](schema.md)), waiting for team 👍; synthetic data converted |
 | Data | Order book reconstruction from ITCH events | :white_circle: Not started |
 | Features | OFI, queue imbalance, trade sign, `ret_<h>ms` labels | :white_circle: Not started |
 | Models | Linear OFI baseline + shared evaluation harness | :white_check_mark: Harness done, checked on synthetic data ([E2](experiments.md#e2-evaluation-harness-on-synthetic-features)) |
@@ -25,7 +25,8 @@ slippage and latency? Finding that it does not is also a valid result.
 
 | Page | What it covers |
 |---|---|
-| [Project guide](PROJECT_GUIDE.md) | Repository layout, pipeline stages, data formats, how to run things |
+| [Project guide](PROJECT_GUIDE.md) | Repository layout, pipeline stages, how to run things |
+| [Shared schema](schema.md) | The three tables every stage reads and writes: messages, book, trades |
 | [Experiments](experiments.md) | Every experiment we have run: what, how, results, status |
 
 ## Quick start

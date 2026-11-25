@@ -7,7 +7,7 @@ module skips that and fakes the features table directly (the output).
 import numpy as np
 import pandas as pd
 
-from .schema import HORIZONS_MS, label_col
+from .schema import HORIZONS_MS, TS_COL, label_col
 
 
 def make_synthetic(n: int = 400_000, seed: int = 0) -> pd.DataFrame:
@@ -32,7 +32,7 @@ def make_synthetic(n: int = 400_000, seed: int = 0) -> pd.DataFrame:
     qi = np.tanh(0.6 * ofi + 0.5 * rng.standard_normal(n))      # queue imbalance
     tsgn = np.sign(0.4 * ofi + rng.standard_normal(n))           # trade sign
 
-    df = pd.DataFrame({"ts": ts, "ofi": ofi, "queue_imb": qi, "trade_sign": tsgn})
+    df = pd.DataFrame({TS_COL: ts.astype("int64"), "ofi": ofi, "queue_imb": qi, "trade_sign": tsgn})
 
     TICK = 0.01
     for h in HORIZONS_MS:

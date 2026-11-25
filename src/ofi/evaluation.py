@@ -35,7 +35,7 @@ def split_by_day(df: pd.DataFrame, train_frac: float = 0.7, ts_col: str = TS_COL
     With only one day available, falls back to splitting that day in time:
     morning trains, afternoon tests. Still no shuffling.
     """
-    days = pd.to_datetime(df[ts_col]).dt.normalize()
+    days = pd.to_datetime(df[ts_col], utc=True).dt.normalize()   # ts_ns ints are ns since epoch
     uniq = np.sort(days.unique())
 
     if len(uniq) >= 2:
@@ -46,7 +46,7 @@ def split_by_day(df: pd.DataFrame, train_frac: float = 0.7, ts_col: str = TS_COL
     else:
         cut = df[ts_col].quantile(train_frac)
         mask = df[ts_col] <= cut
-        how = f"single day, split in time at {pd.Timestamp(cut)}"
+        how = f"single day, split in time at {pd.to_datetime(cut, utc=True)}"
 
     return df[mask].copy(), df[~mask].copy(), how
 

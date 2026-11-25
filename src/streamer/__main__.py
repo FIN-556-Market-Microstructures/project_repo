@@ -46,6 +46,8 @@ def parse_args(argv=None):
     f.add_argument("--start", help='inclusive; no timezone = US/Eastern, e.g. "2025-02-03 09:30"')
     f.add_argument("--end", help="exclusive; same format as --start")
     f.add_argument("--batch-size", type=int, default=100_000)
+    f.add_argument("--table", choices=["trades"],
+                   help="derive the trades table from message files")
 
     s = ap.add_argument_group("stopping criteria (0 = no limit)")
     s.add_argument("--max-batches", type=int, default=10, help="default 10")
@@ -66,6 +68,11 @@ def parse_args(argv=None):
     return args
 
 
+def fmt(ns) -> str:
+    """int ns since epoch -> readable UTC time"""
+    return str(pd.Timestamp(int(ns), tz="UTC"))
+
+
 def split_list(v):
     return [x.strip() for x in v.split(",") if x.strip()] if v else None
 
@@ -84,7 +91,8 @@ def main(argv=None) -> int:
 
     try:
         batches = stream(args.paths, start=args.start, end=args.end, batch_size=args.batch_size,
-                         symbol=split_list(args.symbol), venue=split_list(args.venue))
+                         symbol=split_list(args.symbol), venue=split_list(args.venue),
+                         table=args.table)
         for batch in batches:
             if args.max_rows and n_rows + len(batch) > args.max_rows:
                 batch = batch.iloc[:args.max_rows - n_rows]
@@ -93,7 +101,7 @@ def main(argv=None) -> int:
             ts = batch[TS]
 
             # the check this tool exists for: time never goes backwards
-            bad = int((ts.diff().dt.total_seconds() < 0).sum())
+            bad = int((ts.diff() < 0).sum())
             if last_ts is not None and ts.iloc[0] < last_ts:
                 bad += 1
             out_of_order += bad
@@ -101,13 +109,14 @@ def main(argv=None) -> int:
             last_ts = ts.iloc[-1]
 
             symbols.update(batch[SYMBOL].value_counts().to_dict())
-            venues.update(batch[VENUE].value_counts().to_dict())
-            if "event" in batch:
-                events.update(batch["event"].value_counts().to_dict())
-                orders = batch[batch["event"].isin(["EXECUTE", "EXECUTE_PRICE", "CANCEL", "DELETE"])]
+            if VENUE in batch:
+                venues.update(batch[VENUE].value_counts().to_dict())
+            if "msg_type" in batch:
+                events.update(batch["msg_type"].value_counts().to_dict())
+                orders = batch[batch["msg_type"].isin(["EXECUTE", "EXECUTE_PRICE", "CANCEL", "DELETE"])]
                 side_rows += len(orders)
-                missing_side += int(orders["side"].isna().sum() + (orders["side"] == "").sum())
-            lat = (batch[CAPTURE_TS] - ts).dropna()
+                missing_side += int(orders["side"].isna().sum())
+            lat = (batch[CAPTURE_TS] - ts).dropna() if CAPTURE_TS in batch else pd.Series([], dtype="Int64")
             if len(lat):
                 latency_samples.append(lat.sample(min(len(lat), 10_000), random_state=0))
 
@@ -116,7 +125,7 @@ def main(argv=None) -> int:
                     print(batch.head(args.show).to_string(), "\n")
             if not args.quiet:
                 el = time.time() - t0
-                print(f"batch {n_batches:>5}  rows {len(batch):>8,}  {ts.iloc[0]} -> {ts.iloc[-1]}"
+                print(f"batch {n_batches:>5}  rows {len(batch):>8,}  {fmt(ts.iloc[0])} -> {fmt(ts.iloc[-1])}"
                       f"  total {n_rows:>11,}  {n_rows / max(el, 1e-9):>10,.0f} rows/s"
                       f"  peak {peak_mem()}" + ("  OUT OF ORDER" if bad else ""), flush=True)
 
@@ -141,7 +150,7 @@ def main(argv=None) -> int:
     print(f"rows           {n_rows:,} in {n_batches:,} batch(es), {el:.1f}s"
           f" ({n_rows / max(el, 1e-9):,.0f} rows/s), peak memory {peak_mem()}")
     if n_rows:
-        print(f"time span      {first_ts} -> {last_ts}  ({last_ts - first_ts})")
+        print(f"time span      {fmt(first_ts)} -> {fmt(last_ts)}  ({pd.Timedelta(int(last_ts - first_ts))})")
         print(f"venues         {dict(venues)}")
         print(f"symbols        {len(symbols):,} distinct; top: {dict(symbols.most_common(5))}")
     if events:
@@ -151,7 +160,7 @@ def main(argv=None) -> int:
               f" ({missing_side / side_rows:.1%}): orders added before the data starts;"
               f" stream from session open (~04:00 ET) to fill these")
     if latency_samples:
-        lat_us = pd.concat(latency_samples).dt.total_seconds() * 1e6
+        lat_us = pd.concat(latency_samples).astype("float64") / 1e3
         p1, p50, p99 = lat_us.quantile([0.01, 0.5, 0.99])
         print(f"capture - exch p1 {p1:,.1f} us, median {p50:,.1f} us, p99 {p99:,.1f} us"
               f"  (expect ~166 us for XNAS at NY4)")
