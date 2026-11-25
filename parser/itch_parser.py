@@ -118,14 +118,21 @@ def udp_payload(pkt):
     return pkt[ip + (pkt[ip] & 0x0F) * 4 + 8:]
 
 
-def iter_itch_messages(raw):
-    """Walk one decompressed pcap buffer, yielding (seq, sec, nsec, raw_message_bytes)."""
+def iter_itch_messages(raw, feed=None):
+    """Walk one decompressed pcap buffer, yielding (seq, sec, nsec, raw_message_bytes).
+
+    `feed` holds the MoldUDP64 session id and next expected sequence number and
+    must be the SAME dict for every file of a run: a capture is split into
+    10-minute files, but the session continues across them. (Starting it empty
+    per file made every file boundary look like a new session, which wiped the
+    order book and symbol map every 10 minutes.)"""
+    if feed is None:
+        feed = {}
     magic = unpack_from("<I", raw, 0)[0]
     if magic not in (0xA1B23C4D, 0xA1B2C3D4):
         raise ValueError(f"not a little-endian pcap (magic {magic:#x})")
     frac_scale = 1 if magic == 0xA1B23C4D else 1000   # nanosecond vs microsecond pcap
 
-    session, expected_seq = None, None
     off, n = 24, len(raw)
     while off + 16 <= n:
         sec, frac, caplen, _ = unpack_from("<IIII", raw, off)
@@ -137,15 +144,16 @@ def iter_itch_messages(raw):
 
         sess = payload[0:10]
         seq, count = unpack_from(">QH", payload, 10)
-        if sess != session:
-            session = sess
-            expected_seq = None          # a new MoldUDP64 session: caller resets state
+        if sess != feed.get("session"):
+            feed["session"] = sess
+            feed["expected_seq"] = None  # a new MoldUDP64 session: caller resets state
             yield "SESSION_RESET", None, None, None
         if count == 0xFFFF:
             continue
+        expected_seq = feed.get("expected_seq")
         if expected_seq is not None and seq != expected_seq:
             yield "GAP", seq - expected_seq, None, None
-        expected_seq = seq + count
+        feed["expected_seq"] = seq + count
 
         pos = 20
         for i in range(count):
@@ -276,6 +284,7 @@ def main():
     counts, warnings = Counter(), []
     total_msgs = total_rows = 0
     prev_start = None
+    feed = {}                      # MoldUDP64 session + expected seq, carried across files
 
     def reset_day_state():
         locate_to_ticker.clear()
@@ -317,7 +326,7 @@ def main():
             raw = zstandard.ZstdDecompressor().stream_reader(f).read()
 
         try:
-            stream = iter_itch_messages(raw)
+            stream = iter_itch_messages(raw, feed)
         except ValueError as e:
             warnings.append(f"{stamp}: {e}; file skipped")
             print("    WARNING:", warnings[-1])
