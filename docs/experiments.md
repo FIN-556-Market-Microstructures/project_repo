@@ -16,6 +16,7 @@ row to the index.
 | E6 | [Evaluation and robustness](#e6-evaluation-and-robustness) | :white_circle: Not started (T7) |
 | E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :white_circle: Not started (final step, after T8) |
 | E8 | [C++ vs Python ITCH parser](#e8-c-vs-python-itch-parser) | :white_check_mark: Identical output on real NVDA data; C++ 16× faster (10 s vs 2 min 41 s per file); file-boundary bug found and fixed |
+| E9 | [Features on real data: build and sanity check](#e9-features-on-real-data-build-and-sanity-check) | :white_check_mark: 61 days × 234,000 rows built; OFI vs same-second price change corr +0.63 (validates OFI); predictive corr only +0.003 to +0.021 (one day, untested) |
 
 ---
 
@@ -31,7 +32,7 @@ Preparation steps, not a test. Each row feeds the next.
 | Agree shared schema (Ticket 2) | [`docs/schema.md`](schema.md), `src/streamer/schema.py` | — | :hourglass: Proposed, waiting for team 👍 |
 | Synthetic data in the shared schema | `python -m streamer.convert` | `data/synthetic/nvda_{messages,book,trades}.parquet` | :white_check_mark: Done |
 | Rebuild order book from events | `src/ofi/book.py` (`python -m ofi.book`) | `book` table, one row per top-5 change | :white_check_mark: Done: exact match on synthetic; real 10-min NVDA file: 0 crossed/locked, 149k msgs/s |
-| Features + labels | `src/ofi/features.py`, `scripts/build_features.py` | `features_nvda_<date>_<sample>.parquet` (Box `fin556/gold`) | :white_check_mark: Done: 61 days at 100 ms, 234,000 rows × 40 features + 6 labels per day, 1.09 GiB in Box |
+| Features + labels | `src/ofi/features.py`, `scripts/build_features.py` | `features_nvda_<date>_<sample>.parquet` (Box `fin556/gold`) | :white_check_mark: Done: 61 days at 100 ms, 234,000 rows × 40 features + 6 labels per day, 1.09 GiB in Box ([E9](#e9-features-on-real-data-build-and-sanity-check)) |
 | CME Globex (glbx_pcaps) parser | — | shared schema | :white_circle: Not started (needs secdef for SecurityID → symbol) |
 
 ---
@@ -303,4 +304,78 @@ cmp /tmp/out_cpp/itch_orders_all.csv /tmp/out_py/itch_orders_all.csv && echo "RE
       parsing must keep `make test` passing.
     - With parsing this fast, the slowest steps are now conversion to Parquet
       and the book rebuild (Python).
+
+---
+
+## E9: Features on real data: build and sanity check
+
+- **Question:** Do the T3 features look right on real NVDA data? Specifically:
+  are the prices, spreads and labels plausible, and does OFI behave as the
+  literature says? And as a first preview (not a test), how much does OFI
+  predict *future* price changes?
+- **Data:** the 61 study days from E3 (silver in Box) → features at a 100 ms
+  clock, regular hours (09:30–16:00 ET). Sanity check on one day, 3 Feb 2025.
+- **Build command** (VM, in RAM, Box → Box):
+
+```bash
+python scripts/build_features.py --source box:fin556/silver --dest box:fin556/gold \
+    --from 20250203 --to 20250430 --sample 100ms --jobs 6
+```
+
+- **Build result:**
+
+| | |
+|---|---|
+| Days | 61 of 61, no failures |
+| Rows per day | 234,000 (6.5 h × 10 per second) |
+| Total observations | 14.3M |
+| Columns | 40 features + 6 labels (+ time, symbol, quotes at t) |
+| Size in Box (`fin556/gold`) | 1.09 GiB, ~18 MB per day |
+| Time | ~1 minute per day per job (mostly Box transfer), 6 jobs in parallel |
+
+- **Sanity check** (3 Feb 2025):
+
+```python
+f = pd.read_parquet("features_nvda_20250203_100ms.parquet")
+f["ofi_l1_100ms"].corr(f["ret_100ms"])         # predictive
+f["ofi_l1_1s"].corr(f["mid"].diff(10))          # contemporaneous: same 1 s window
+```
+
+| Check | Result | Expected |
+|---|---|---|
+| Mid price | $113.03 – 118.56 | NVDA on 3 Feb 2025 |
+| Median spread | 1.0 tick | NVDA usually trades at a 1-cent spread |
+| Labels exactly 0 | 10 ms: 90% · 100 ms: 58% · 1 s: 16% · 5 s: 6% | most very short horizons have no price change |
+| **Contemporaneous** corr(OFI level 1 over last 1 s, mid change over the same 1 s) | **+0.632** (R² ≈ 0.40) | clearly positive (Cont, Kukanov & Stoikov 2014) |
+
+Predictive correlations, OFI at t vs. the future mid change (one day, no
+significance test):
+
+| Horizon | corr with `ofi_l1_100ms` | corr with `ofi_ml_1s` (all 5 levels, 1 s) |
+|---|---|---|
+| 10 ms | +0.015 | −0.004 |
+| 100 ms | +0.021 | +0.008 |
+| 1 s | +0.014 | +0.005 |
+| 5 s | +0.003 | −0.010 |
+
+- **Interpretation:**
+    - **The features are built correctly.** Prices, spreads and label
+      distributions are plausible, and the strong contemporaneous relationship
+      (+0.63) reproduces the Cont–Kukanov–Stoikov result, which confirms the
+      OFI construction and its sign on real data.
+    - **The predictive signal looks weak.** OFI explains price moves as they
+      happen, but its correlation with the *next* move is at most about +0.02
+      (R² ≈ 0.04%), peaks around 100 ms and fades by 5 s. This is consistent
+      with OFI's information being absorbed into the price almost immediately.
+    - The all-level 1 s OFI is weaker still, and slightly negative at 5 s, a
+      possible hint of short-term mean reversion to test in T5 and T6.
+    - **Implication for the research question:** an edge this small will
+      struggle against a 1-tick spread. The models (T5 linear, T6 gradient
+      boosting) test this properly across all 61 days, with walk-forward
+      splits and significance tests (T7). The GBM may still find signal
+      concentrated in particular conditions, such as wide spreads or high
+      activity. If the edge doesn't survive costs, that is itself a valid
+      result (README).
+- **Caveats:** one day only; simple correlations, not out-of-sample model
+  results; no significance tests. Treat the predictive numbers as a preview.
 
