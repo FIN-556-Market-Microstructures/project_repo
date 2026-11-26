@@ -269,6 +269,37 @@ rclone copy /dev/shm/fin556/signals_valid box:fin556/signals_valid
 rclone copy models box:fin556/models
 ```
 
+- **E7a: crossing the spread** (`scripts/run_taker.py`, `src/backtest/taker.py`).
+  For each model (linear, LightGBM), horizon h (10 ms – 1 s) and strength q
+  (top 10% / 1% / 0.1% of |prediction|): at each 100 ms row in the top q,
+  send a marketable order for 100 shares in the predicted direction, close
+  it h ms later by crossing back; one position at a time.
+    - **Timing:** decision at `capture_ts_ns` + 20 µs reaction; the order
+      reaches the exchange 85 µs later and fills against the **event-level
+      book** (silver) in force at that instant, walking deeper levels if the
+      best is too small; the exit fills at arrival + h the same way.
+      Sensitivity: order delay 0 and 500 µs.
+    - **Costs:** $0.0030 per share each way (also reported without fees).
+    - **P&L per share, split:** the move the model predicted (from the
+      signal time) → the mid move after latency → minus the spread paid in
+      and out → minus fees.
+    - **Choice:** |prediction| cut-offs from the March signals (train-only
+      models); each model's (h, q) chosen on March by mean daily net P&L;
+      April run once. Full April grid reported as sensitivity.
+    - **Benchmarks:** the **oracle** trades on the actual move (top q of
+      |actual move|), the most any forecast could earn; **random** uses the
+      LightGBM trade times with random direction, the pure cost of crossing.
+
+```bash
+# silver order books for the 11 March + 21 April days (a few GB)
+rclone copy box:fin556/silver /dev/shm/fin556/silver_book --transfers 8 \
+    --include "nvda_2025031[7-9]_book.parquet" --include "nvda_2025032*_book.parquet" \
+    --include "nvda_2025033*_book.parquet" --include "nvda_202504*_book.parquet"
+python scripts/run_taker.py --signals-valid /dev/shm/fin556/signals_valid \
+    --signals /dev/shm/fin556/signals --book /dev/shm/fin556/silver_book \
+    --out results/e7a 2>&1 | tee e7a.log
+```
+
 - **Results:** —
 
 ---
