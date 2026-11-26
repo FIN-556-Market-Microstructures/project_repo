@@ -6,7 +6,8 @@ need feature scaling.
 
 Labels are mid changes in dollars, mostly 0 or a few half-ticks (~0.005);
 the model is trained on labels in ticks (x100) for numerical comfort and
-converts predictions back to dollars.
+converts predictions back to dollars. For a classifier (objective "binary",
+labels 0/1; T7b) pass label_scale=1: predictions are then probabilities.
 
 Feature importance: total split gain, and mean |SHAP| value (LightGBM
 computes exact tree SHAP values itself with pred_contrib=True).
@@ -51,19 +52,20 @@ class GBMModel:
     booster: object
     params: Dict = field(default_factory=dict)
     best_iteration: Optional[int] = None
+    scale: float = TICK              # label units: dollars per model unit (1 for a classifier)
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return self.booster.predict(_matrix(X, self.cols), num_iteration=self.best_iteration) * TICK
+        return self.booster.predict(_matrix(X, self.cols), num_iteration=self.best_iteration) * self.scale
 
     def importance(self, X_sample: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """Total gain per feature (share of all gain) and, given a sample of
-        rows, mean |SHAP| per feature (in dollars)."""
+        rows, mean |SHAP| per feature (in dollars; in log-odds for a classifier)."""
         gain = self.booster.feature_importance("gain", iteration=self.best_iteration)
         out = pd.DataFrame({"feature": self.cols, "gain_share": gain / gain.sum() if gain.sum() else gain})
         if X_sample is not None and len(X_sample):
             contrib = self.booster.predict(_matrix(X_sample, self.cols),
                                            num_iteration=self.best_iteration, pred_contrib=True)
-            out["mean_abs_shap"] = np.abs(contrib[:, :-1]).mean(axis=0) * TICK   # last column = bias
+            out["mean_abs_shap"] = np.abs(contrib[:, :-1]).mean(axis=0) * self.scale   # last column = bias
         return out.sort_values("gain_share", ascending=False).reset_index(drop=True)
 
     def save(self, path) -> None:
@@ -73,14 +75,15 @@ class GBMModel:
         self.booster.save_model(str(path), num_iteration=self.best_iteration)
         path.with_suffix(".json").write_text(json.dumps(
             {"cols": self.cols, "params": self.params, "best_iteration": self.best_iteration,
-             "label_scale": TICK}, indent=2), encoding="utf-8")
+             "label_scale": self.scale}, indent=2), encoding="utf-8")
 
     @classmethod
     def load(cls, path) -> "GBMModel":
         import lightgbm as lgb
         path = Path(path)
         meta = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
-        return cls(meta["cols"], lgb.Booster(model_file=str(path)), meta["params"], None)
+        return cls(meta["cols"], lgb.Booster(model_file=str(path)), meta["params"], None,
+                   meta.get("label_scale", TICK))
 
 
 def _matrix(X: pd.DataFrame, cols) -> np.ndarray:
@@ -89,19 +92,19 @@ def _matrix(X: pd.DataFrame, cols) -> np.ndarray:
     return np.ascontiguousarray(X[list(cols)].to_numpy(dtype=np.float32))
 
 
-def _dataset(X: pd.DataFrame, y, cols, reference=None):
+def _dataset(X: pd.DataFrame, y, cols, reference=None, scale=TICK):
     import lightgbm as lgb
-    return lgb.Dataset(_matrix(X, cols), label=np.ascontiguousarray(np.asarray(y, dtype=np.float64) / TICK),
+    return lgb.Dataset(_matrix(X, cols), label=np.ascontiguousarray(np.asarray(y, dtype=np.float64) / scale),
                        feature_name=list(cols), reference=reference, free_raw_data=True)
 
 
 def fit_gbm(train: pd.DataFrame, target: str, cols: Sequence[str], valid: Optional[pd.DataFrame] = None,
             params: Optional[Dict] = None, num_boost_round: int = 2000, early_stopping: int = 50,
-            threads: int = 0) -> GBMModel:
+            threads: int = 0, label_scale: float = TICK) -> GBMModel:
     """Train with early stopping on `valid` (if given), else for num_boost_round rounds.
 
     threads: LightGBM threads (0 = LightGBM's default, all cores; set a limit on
-    a shared machine)."""
+    a shared machine). label_scale: 1 for a classifier (labels 0/1)."""
     if lightgbm is None:
         raise ImportError("LightGBM is not installed: pip install lightgbm")
     import lightgbm as lgb
@@ -109,13 +112,13 @@ def fit_gbm(train: pd.DataFrame, target: str, cols: Sequence[str], valid: Option
     p = {**DEFAULT_PARAMS, **(params or {})}
     if threads:
         p["num_threads"] = threads
-    dtr = _dataset(train, train[target], cols)
+    dtr = _dataset(train, train[target], cols, scale=label_scale)
     callbacks = []
     valid_sets = None
     if valid is not None:
-        dva = _dataset(valid, valid[target], cols, reference=dtr)
+        dva = _dataset(valid, valid[target], cols, reference=dtr, scale=label_scale)
         valid_sets = [dva]
         callbacks.append(lgb.early_stopping(early_stopping, verbose=False))
     booster = lgb.train(p, dtr, num_boost_round=num_boost_round, valid_sets=valid_sets, callbacks=callbacks)
     best = booster.best_iteration if valid is not None and booster.best_iteration > 0 else None
-    return GBMModel(cols, booster, p, best)
+    return GBMModel(cols, booster, p, best, label_scale)

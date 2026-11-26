@@ -9,6 +9,9 @@ fixed clock grid), built by ofi.features.build_features:
     bid/ask_px_1, bid/ask_sz_1   best quotes at t (for the backtest)
     FEATURE_COLS       predictors, all computed from data at or before t (below)
     ret_<h>ms          label: mid(t + h ms) - mid(t) in dollars, blank after 16:00 ET
+    next_dir           label: direction of the next mid change after t (+1 / -1), blank
+                       if none before 16:00 ET (ofi.labels; T7b)
+    next_dt_ms         label: time from t to that change, in ms
 
 Predictors. Windows are trailing, (t - w, t]:
 

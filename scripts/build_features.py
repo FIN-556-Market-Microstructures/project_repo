@@ -56,11 +56,16 @@ def available_days(args) -> list:
     return sorted(days)
 
 
+def sample_tag(args) -> str:
+    """File-name tag: the sampling, plus the thinning factor (e.g. event10 = every 10th event)."""
+    return f"{args.sample}{args.keep_every}" if args.keep_every > 1 else args.sample
+
+
 def build_day(day: str, args) -> str:
     import pandas as pd
     from ofi.features import build_features, feature_columns
 
-    out_name = f"features_{args.prefix}_{day}_{args.sample}.parquet"
+    out_name = f"features_{args.prefix}_{day}_{sample_tag(args)}.parquet"
     if not args.force and remote_files(args, args.dest, out_name):
         log(day, f"{out_name} already at {args.dest}; skipping")
         return "skipped"
@@ -80,6 +85,8 @@ def build_day(day: str, args) -> str:
         trades = pd.read_parquet(work / names[1]) if (work / names[1]).exists() else None
         feats = build_features(book, trades, sample=args.sample, drop_edges_min=args.drop_edges_min)
         del book, trades
+        if args.keep_every > 1:          # labels were computed on every row first, so they stay exact
+            feats = feats.iloc[::args.keep_every].reset_index(drop=True)
         out = work / out_name
         feats.to_parquet(out, index=False, compression="zstd", row_group_size=500_000)
         n_rows, n_feat = len(feats), len(feature_columns(feats))
@@ -108,6 +115,8 @@ def main(argv=None) -> int:
     ap.add_argument("--to", help="last date YYYYMMDD (with --from)")
     ap.add_argument("--sample", default="100ms", help='"event" or a clock step like 100ms (default 100ms)')
     ap.add_argument("--drop-edges-min", type=float, default=0.0)
+    ap.add_argument("--keep-every", type=int, default=1,
+                    help="keep every n-th row after building (labels use all rows); file tag gets n, e.g. event10")
     ap.add_argument("--prefix", default="nvda")
     ap.add_argument("--work", default="/dev/shm/fin556/features_work", help="scratch folder (RAM by default)")
     ap.add_argument("--jobs", type=int, default=1)
@@ -132,7 +141,7 @@ def main(argv=None) -> int:
     if not days:
         print(f"error: no matching days with {args.prefix}_<date>_book.parquet at {args.source}", file=sys.stderr)
         return 2
-    print(f"building {args.sample} features for {len(days)} day(s) with {args.jobs} job(s)\n", flush=True)
+    print(f"building {sample_tag(args)} features for {len(days)} day(s) with {args.jobs} job(s)\n", flush=True)
 
     failed = {}
     with ProcessPoolExecutor(max_workers=args.jobs) as pool:

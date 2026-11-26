@@ -22,6 +22,7 @@ slippage and latency? Finding that it does not is also a valid result.
 | Models | Dataset loading, frozen split (train Feb–mid Mar, validate late Mar, test April), scaling, per-day evaluation | :white_check_mark: Done (T4) |
 | Models | Gradient-boosted model (LightGBM) | :white_check_mark: Done: beats linear up to 1 s, April R² 2.1% at 10 ms; queue imbalance is the top feature ([E5](results.md#e5-gradient-boosted-model-vs-linear)) |
 | Models | Evaluation and robustness | :white_check_mark: Done: GBM's edge significant up to 1 s, holds on 20–21 of 21 days and in every regime; strongest at a 1-tick spread ([E6](results.md#e6-evaluation-and-robustness)) |
+| Models | Direction of the next price move at book events (probability; T7b) | :hourglass: Code ready, run pending ([E10](experiments.md#e10-direction-of-the-next-price-move-event-time)) |
 | Costs | Spread, fees, slippage, latency evaluation | :white_circle: Not started (sense check: confident predictions average under half the spread, [E6](results.md#5-economic-sense-check-not-a-backtest)) |
 
 ## Where to read
@@ -29,6 +30,7 @@ slippage and latency? Finding that it does not is also a valid result.
 | Page | What it covers |
 |---|---|
 | [Project guide](PROJECT_GUIDE.md) | Repository layout, pipeline stages, how to run things |
+| [Run on a new machine](new-machine.md) | Box access, rclone, and running the experiments outside the course VM |
 | [Shared schema](schema.md) | The three tables every stage reads and writes: messages, book, trades |
 | [Experiments](experiments.md) | Every experiment: question, data, commands, status |
 | [Results](results.md) | What we found: key findings and each experiment's results |
