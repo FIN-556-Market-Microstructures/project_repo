@@ -199,11 +199,14 @@ class OrderResult:
         return self.fills[-1][0] if self.filled >= self.size else self.cancel_at
 
 
-def simulate_order(lv: Levels, side: int, price: int, size: int, arrival: int, cancel_at: int = NEVER
-                   ) -> OrderResult:
+def simulate_order(lv: Levels, side: int, price: int, size: int, arrival: int, cancel_at: int = NEVER,
+                   queue_fills: bool = True) -> OrderResult:
     """Our limit order of `size` shares at `price` (ticks), resting from `arrival`
     (exchange time) until filled or until `cancel_at` (exchange time the cancel
-    takes effect). Events at exactly the arrival time are treated as before us."""
+    takes effect). Events at exactly the arrival time are treated as before us.
+
+    queue_fills=False is the pessimistic variant: we only ever fill when the
+    market trades through our price, never by reaching the front of the queue."""
     key = (side, price)
     pos = lv.groups.get(key, np.empty(0, dtype=np.int64))
     k0 = int(np.searchsorted(lv.ts[pos], arrival, side="right")) if len(pos) else 0
@@ -214,7 +217,7 @@ def simulate_order(lv: Levels, side: int, price: int, size: int, arrival: int, c
     t_thru = lv.first_through(side, price, arrival, cancel_at)
     stop = min(cancel_at, t_thru)
     left = size
-    for j in pos[k0:]:
+    for j in (pos[k0:] if queue_fills else ()):
         t = int(lv.ts[j])
         if t >= stop:
             break
