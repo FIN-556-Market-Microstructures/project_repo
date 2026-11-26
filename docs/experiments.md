@@ -18,6 +18,7 @@ row to the index.
 | E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :white_circle: Not started (final step, after T8) | — |
 | E8 | [C++ vs Python ITCH parser](#e8-c-vs-python-itch-parser) | :white_check_mark: Done | [E8](results.md#e8-c-vs-python-itch-parser) |
 | E9 | [Features on real data: build and sanity check](#e9-features-on-real-data-build-and-sanity-check) | :white_check_mark: Done | [E9](results.md#e9-features-on-real-data-build-and-sanity-check) |
+| E10 | [Direction of the next price move (event time)](#e10-direction-of-the-next-price-move-event-time) | :hourglass: Code ready (T7b), not yet run | — |
 
 ---
 
@@ -298,3 +299,56 @@ f["ofi_l1_1s"].corr(f["mid"].diff(10))          # contemporaneous: same 1 s wind
   0; a clearly positive contemporaneous OFI–price correlation (Cont, Kukanov
   & Stoikov 2014); small predictive correlations.
 - **Results:** [Results → E9](results.md#e9-features-on-real-data-build-and-sanity-check)
+
+---
+
+## E10: Direction of the next price move (event time)
+
+- **Question:** At each order book event, can we forecast the probability
+  that the **next** mid-price change is up rather than down, and can those
+  probabilities be trusted? E4–E6 showed the direction is predictable but
+  the size is tiny, and that predictability is concentrated right after book
+  events; a strategy that posts quotes needs exactly this probability.
+- **Data:** all 61 days, features at every 10th book event (built with
+  `--sample event --keep-every 10`), the same 38 features and the same frozen
+  split (train Feb 3 – Mar 14, validate Mar 17–31, test April).
+- **Label** (`src/ofi/labels.py`): `next_dir` = +1 / −1, the direction of
+  the next change in mid after the event, however long it takes;
+  `next_dt_ms` = the time until it. Computed from every book event before
+  thinning, so it is exact. Rows with no change before 16:00 are dropped.
+- **Spec** (`scripts/run_direction.py`, ticket T7b):
+    1. Four models, from simplest to richest:
+        - base rate: always the training share of up moves (no skill)
+        - logistic regression on queue imbalance alone (the classic
+          predictor; Gould & Bonart 2016)
+        - logistic regression on all 38 features (L2 strength chosen on
+          validation)
+        - LightGBM classifier on all 38 features (8 settings, chosen on
+          validation; early stopping on validation log loss)
+    2. Each refit on train + validation and scored once on April:
+        - accuracy, log loss, log-loss skill (share of the base rate's log
+          loss removed), AUC, Brier score
+        - calibration: do forecasts of 70% go up 70% of the time?
+        - accuracy of the most confident forecasts
+        - per day, and by spread, time of day, volatility, activity and
+          (in hindsight) time until the next move
+    3. Significance of each step up (base → queue imbalance → logistic →
+       LightGBM): Diebold-Mariano on log loss, day-level t-test and day
+       bootstrap.
+    4. LightGBM feature importance (split gain, SHAP); final models saved to
+       `models/` for T8.
+- **Commands** (full walk-through, including Box access, on
+  [Run on a new machine](new-machine.md)):
+
+```bash
+python scripts/build_features.py --source box:fin556/silver \
+    --dest /dev/shm/fin556/gold_event10 --sample event --keep-every 10 --jobs 2
+python scripts/run_direction.py --gold /dev/shm/fin556/gold_event10 \
+    --out results/e10 --threads 32 2>&1 | tee e10.log
+```
+
+- **Expected:** queue imbalance alone well above 50% accuracy, highest at a
+  1-tick spread (the literature reports roughly 60–70% for large-tick
+  stocks); the full models a few points better, mostly from recent OFI and
+  activity; good calibration for LightGBM.
+- **Results:** —

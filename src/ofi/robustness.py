@@ -5,6 +5,7 @@ models a and b, the training-mean benchmark, and the date of each row.
 
 - dm_test:        Diebold-Mariano test on squared errors, Newey-West (HAC)
                   variance over rows (overlapping labels are autocorrelated)
+- dm_loss / dm_loss_by_day: the same for any per-row loss (e.g. log loss)
 - dm_by_day:      the same comparison with one number per day, t-test across
                   days (robust to any within-day dependence)
 - day_bootstrap:  confidence intervals for out-of-sample R^2 of a, b and their
@@ -59,7 +60,13 @@ def dm_test(y, pred_a, pred_b, lags: int) -> Dict[str, float]:
     """Diebold-Mariano: d = e_a^2 - e_b^2 per row. d_mean > 0 means b is more
     accurate. t uses a Newey-West variance with `lags` lags."""
     y = np.asarray(y, dtype=np.float64)
-    d = (y - pred_a) ** 2 - (y - pred_b) ** 2
+    return dm_loss((y - pred_a) ** 2 - (y - pred_b) ** 2, lags)
+
+
+def dm_loss(d, lags: int) -> Dict[str, float]:
+    """Diebold-Mariano on any per-row loss difference d = loss_a - loss_b
+    (e.g. log loss for probabilities). d_mean > 0 means b is better."""
+    d = np.asarray(d, dtype=np.float64)
     var = newey_west_var_mean(d, lags)
     t = d.mean() / sqrt(var) if var > 0 else np.nan
     return {"d_mean": float(d.mean()), "dm_t": float(t), "dm_p": _p_normal(t), "lags": lags, "n": len(d)}
@@ -68,7 +75,12 @@ def dm_test(y, pred_a, pred_b, lags: int) -> Dict[str, float]:
 def dm_by_day(y, pred_a, pred_b, dates) -> Dict[str, float]:
     """Mean loss difference per day, t-test across days, and how many days b wins."""
     y = np.asarray(y, dtype=np.float64)
-    d = pd.Series((y - pred_a) ** 2 - (y - pred_b) ** 2).groupby(np.asarray(dates)).mean()
+    return dm_loss_by_day((y - pred_a) ** 2 - (y - pred_b) ** 2, dates)
+
+
+def dm_loss_by_day(d, dates) -> Dict[str, float]:
+    """Mean of a per-row loss difference per day; t-test across days; days b wins."""
+    d = pd.Series(np.asarray(d, dtype=np.float64)).groupby(np.asarray(dates)).mean()
     n = len(d)
     t = d.mean() / (d.std(ddof=1) / sqrt(n)) if n > 1 and d.std(ddof=1) > 0 else np.nan
     return {"days": n, "days_b_better": int((d > 0).sum()), "day_t": float(t), "day_p": _p_student(t, n - 1)}

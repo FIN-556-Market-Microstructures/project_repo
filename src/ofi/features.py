@@ -16,7 +16,9 @@ between samples is lost, even with clock sampling.
 
 Labels: ret_<h>ms = mid(t + h) - mid(t) in dollars, where mid(t + h) is the
 last book state at or before t + h. Blank if t + h is after 16:00 ET or
-beyond the last book row.
+beyond the last book row. next_dir / next_dt_ms: direction of the next mid
+change after t (+1 / -1) and the time until it (ofi.labels; blank if none
+before 16:00).
 
     python -m ofi.features --book nvda_20250203_book.parquet \
         --trades nvda_20250203_trades.parquet --out features_nvda_20250203.parquet
@@ -32,6 +34,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
+from .labels import NEXT_COLS, next_move
 from .schema import HORIZONS_MS, label_col
 
 ET = ZoneInfo("America/New_York")
@@ -206,6 +209,7 @@ def build_features(book: pd.DataFrame, trades: Optional[pd.DataFrame] = None, sa
         lab[tgt >= close_ns] = np.nan        # after the close
         lab[tgt > ts[-1]] = np.nan           # beyond the end of the data: mid(t + h) unknown
         out[label_col(h)] = np.round(lab, 6)
+    out["next_dir"], out["next_dt_ms"] = next_move(ts, mid_ev, obs_i, obs_t, close_ns)
 
     return pd.DataFrame(out)
 
@@ -213,7 +217,7 @@ def build_features(book: pd.DataFrame, trades: Optional[pd.DataFrame] = None, sa
 def feature_columns(df: pd.DataFrame) -> list:
     """Predictor columns (everything except time, symbol, state-at-t and labels)."""
     skip = {"ts_ns", "symbol", "mid", "spread", "bid_px_1", "ask_px_1", "bid_sz_1", "ask_sz_1"}
-    return [c for c in df.columns if c not in skip and not c.startswith("ret_")]
+    return [c for c in df.columns if c not in skip and not c.startswith("ret_") and c not in NEXT_COLS]
 
 
 # --------------------------------------------------------------------------- CLI

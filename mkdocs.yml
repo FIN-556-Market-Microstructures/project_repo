@@ -26,6 +26,7 @@ nav:
   - Shared schema: schema.md
   - Experiments: experiments.md
   - Results: results.md
+  - Run on a new machine: new-machine.md
 
 markdown_extensions:
   - tables
