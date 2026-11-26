@@ -18,6 +18,11 @@ Models expected in --models (made by the experiment scripts):
     linear_<h>ms.json        final linear models; fit here if missing (fit_final_linear)
     gbm_<h>ms.txt / .json    scripts/run_gbm.py (E5)
     *_dir_event10.*          scripts/run_direction.py (E10), optional
+
+Train-only models (--models/train_only, ticket T9 step 0): the same models fit
+on the training days only, for tuning the backtest on the validation days
+without touching April. The LightGBM ones reuse E5's settings and the number of
+rounds E5's early stopping chose, so they reproduce E5's validation models.
 """
 import hashlib
 import subprocess
@@ -53,13 +58,17 @@ class SignalModel:
 
 # --------------------------------------------------------------------------- models
 
+def _training_rows(gold, days):
+    df = load_days(gold, days, features=FEATURES, extra=["ts_ns"] + LABELS)
+    return df[df[label_col(max(HORIZONS_MS))].notna()].reset_index(drop=True)   # same rows as E4/E5
+
+
 def fit_final_linear(gold, days: Sequence[str], horizons: Sequence[int], alphas: Dict[int, float],
-                     models_dir) -> List[Path]:
+                     models_dir, note: str = "E4 linear, all features (refit by ofi.signals)") -> List[Path]:
     """Refit the E4 linear model (all 38 features, ridge strength chosen in E4)
     on `days` and save linear_<h>ms.json, exactly as E4/E6 refit it."""
     from .models.ols import Gram, LinearFit, design
-    df = load_days(gold, days, features=FEATURES, extra=["ts_ns"] + LABELS)
-    df = df[df[label_col(max(HORIZONS_MS))].notna()].reset_index(drop=True)   # same rows as E4
+    df = _training_rows(gold, days)
     scaler = Scaler().fit(df[FEATURES])
     gram = Gram(design(df[FEATURES], scaler))
     paths = []
@@ -68,9 +77,32 @@ def fit_final_linear(gold, days: Sequence[str], horizons: Sequence[int], alphas:
         alpha = float(alphas.get(h, 0.0))
         fit = LinearFit(FEATURES, scaler, gram.solve(y, alpha), alpha,
                         meta={"target": label_col(h), "trained_on": list(days), "rows": len(df),
-                              "experiment": "E4 linear, all features (refit by ofi.signals)"})
+                              "train_mean": float(y.mean()), "experiment": note})
         p = Path(models_dir) / f"linear_{h}ms.json"
         fit.save(p)
+        paths.append(p)
+    return paths
+
+
+def fit_train_only_gbm(gold, days: Sequence[str], horizons: Sequence[int], final_dir, models_dir,
+                       threads: int = 0) -> List[Path]:
+    """LightGBM per horizon on `days` only, with the final (E5) model's settings
+    and number of rounds. E5 chose those rounds by early stopping on the
+    validation days while training on the training days, and LightGBM is
+    deterministic here, so this reproduces E5's validation-stage model."""
+    from .models.gbm import GBMModel, fit_gbm
+    df = _training_rows(gold, days)
+    paths = []
+    for h in horizons:
+        final = GBMModel.load(Path(final_dir) / f"gbm_{h}ms.txt")
+        params = {k: v for k, v in final.params.items() if k != "num_threads"}
+        rounds = final.booster.num_trees()
+        m = fit_gbm(df, label_col(h), FEATURES, None, params, rounds, threads=threads)
+        m.meta = {"target": label_col(h), "trained_on": list(days), "rows": len(df), "rounds": rounds,
+                  "train_mean": float(df[label_col(h)].mean()),
+                  "experiment": "E5 settings and rounds, refit on the training days only (T9 step 0)"}
+        p = Path(models_dir) / f"gbm_{h}ms.txt"
+        m.save(p)
         paths.append(p)
     return paths
 
@@ -90,13 +122,16 @@ def find_models(models_dir, horizons: Sequence[int], split: Split = SPLIT):
             m = LinearFit.load(p)
             clock.append(SignalModel(f"pred_linear_{h}ms", "linear", m, p, label_col(h),
                                      {"alpha": m.alpha, "trained_on": m.meta.get("trained_on"),
+                                      "train_mean": m.meta.get("train_mean"),
                                       "experiment": m.meta.get("experiment", "E4")}))
         p = d / f"gbm_{h}ms.txt"
         if p.exists():
             m = GBMModel.load(p)
             clock.append(SignalModel(f"pred_gbm_{h}ms", "gbm", m, p, label_col(h),
                                      {"params": _settings(m.params), "rounds": m.booster.num_trees(),
-                                      "trained_on": trained, "experiment": "E5 (scripts/run_gbm.py)"}))
+                                      "trained_on": m.meta.get("trained_on", trained),
+                                      "train_mean": m.meta.get("train_mean"),
+                                      "experiment": m.meta.get("experiment", "E5 (scripts/run_gbm.py)")}))
     for name in ("qi_logit", "logit"):
         p = d / f"{name}_dir_{EVENT_SAMPLE}.json"
         if p.exists():
@@ -172,6 +207,23 @@ def same_features(gold_a, gold_b, day: str, sample: str = "100ms", prefix: str =
     return float(np.nanmax(np.where(np.isnan(d), np.inf, d))) if d.size else 0.0
 
 
+def r2_check(out_dir, files: Sequence[str], models: Sequence[SignalModel]) -> pd.DataFrame:
+    """Out-of-sample R^2 of every prediction column over the exported files,
+    on the rows E4-E6 scored (all labels known), against the model's training
+    mean (0 if unknown). Should reproduce the experiment tables."""
+    cols = list(dict.fromkeys(["ret_5000ms"] + [m.target for m in models] + [m.column for m in models]))
+    df = pd.concat([pd.read_parquet(Path(out_dir) / f, columns=cols) for f in files], ignore_index=True)
+    df = df[df["ret_5000ms"].notna()]
+    rows = []
+    for m in models:
+        y = df[m.target].to_numpy(dtype=np.float64)
+        mean = m.info.get("train_mean") or 0.0
+        sst = float(np.sum((y - mean) ** 2))
+        rows.append({"column": m.column, "rows": len(y), "benchmark_mean": mean,
+                     "r2_oos": 1 - float(np.sum((y - df[m.column].to_numpy()) ** 2)) / sst if sst else np.nan})
+    return pd.DataFrame(rows)
+
+
 def sha256(path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -190,8 +242,9 @@ def git_commit() -> Optional[str]:
 
 
 def models_manifest(models: Sequence[SignalModel], days: Sequence[str], files: Dict[str, List[str]],
-                    split: Split) -> Dict:
+                    split: Split, model_set: str = "final") -> Dict:
     return {
+        "model_set": model_set,
         "created": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "git_commit": git_commit(),
         "split": {"name": split.name, "train": list(split.train), "valid": list(split.valid),

@@ -15,7 +15,7 @@ row to the index.
 | E4 | [Linear OFI baseline on real NVDA](#e4-linear-ofi-baseline-on-real-nvda) | :white_check_mark: Done | [E4](results.md#e4-linear-ofi-baseline-on-real-nvda) |
 | E5 | [Gradient-boosted model vs. linear](#e5-gradient-boosted-model-vs-linear) | :white_check_mark: Done | [E5](results.md#e5-gradient-boosted-model-vs-linear) |
 | E6 | [Evaluation and robustness](#e6-evaluation-and-robustness) | :white_check_mark: Done | [E6](results.md#e6-evaluation-and-robustness) |
-| E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :white_circle: Not started (final step, after T8) | — |
+| E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :hourglass: In progress (T9): step 0 ready | — |
 | E8 | [C++ vs Python ITCH parser](#e8-c-vs-python-itch-parser) | :white_check_mark: Done | [E8](results.md#e8-c-vs-python-itch-parser) |
 | E9 | [Features on real data: build and sanity check](#e9-features-on-real-data-build-and-sanity-check) | :white_check_mark: Done | [E9](results.md#e9-features-on-real-data-build-and-sanity-check) |
 | E10 | [Direction of the next price move (event time)](#e10-direction-of-the-next-price-move-event-time) | :hourglass: Code ready (T7b), not yet run | — |
@@ -236,9 +236,39 @@ python scripts/run_robustness.py --gold /dev/shm/fin556/gold --out results/e6 \
 ## E7: Trading costs and latency (backtest)
 
 - **Question:** Does any predictive edge survive the bid-ask spread, fees,
-  slippage and execution latency?
-- **Spec:** starts from the T8 signal files. Use `capture_ts_ns` (when we see
-  data at NY4) plus an order-entry delay for latency, not exchange time.
+  slippage and execution latency? Three parts (ticket T9):
+    - **E7a:** crossing the spread when the forecast is strong, against an
+      oracle (trades on the actual move) and a random benchmark
+    - **E7b:** an order-level fill simulator that tracks our place in the
+      queue, verified on its own
+    - **E7c:** quoting both sides with vs without the signal withdrawing
+      the side about to be picked off; the signal's value is the difference
+- **Rules:** decisions no earlier than `capture_ts_ns` plus a reaction time,
+  orders and cancels delayed to the exchange; fees and rebates; 100 shares,
+  no market impact, flat every night. **No tuning on April:** every strategy
+  setting is chosen on the validation days (17–31 March) with models trained
+  on the training days only, then April is run once.
+- **Step 0: train-only models and March signals.** The final models (T8)
+  were refit on train + validation, so their March predictions are
+  in-sample. `export_signals.py --model-set train-only` fits the linear
+  models on the training days only, and LightGBM on the training days with
+  E5's settings and the number of rounds E5's early stopping chose (so it
+  reproduces E5's validation-stage models exactly), saves them in
+  `models/train_only/` and exports the 11 validation days. Its `check.csv`
+  should match E5's validation R² (`results/e5/valid.csv`, e.g. 2.62% at
+  100 ms). The March feature files are rebuilt first to add `capture_ts_ns`,
+  as for April in T8:
+
+```bash
+python scripts/build_features.py --source box:fin556/silver \
+    --dest /dev/shm/fin556/gold_t8 --from 20250317 --to 20250331 --jobs 4
+python scripts/export_signals.py --model-set train-only \
+    --gold /dev/shm/fin556/gold_t8 --train-gold /dev/shm/fin556/gold \
+    --e4 results/e4/test.csv --out /dev/shm/fin556/signals_valid --threads 32 2>&1 | tee step0.log
+rclone copy /dev/shm/fin556/signals_valid box:fin556/signals_valid
+rclone copy models box:fin556/models
+```
+
 - **Results:** —
 
 ---

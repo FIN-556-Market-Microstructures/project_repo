@@ -2,6 +2,10 @@
 """Export the final models' signals for the backtest (ticket T8).
 
 For every test day (April, out of sample) writes to --out:
+With --model-set train-only (ticket T9 step 0) it fits the same models on the
+training days only (models/train_only/) and exports the VALIDATION days, for
+tuning the backtest without touching April.
+
     nvda_<date>_signals.parquet           100 ms rows: pred_linear_<h>ms, pred_gbm_<h>ms
     nvda_<date>_event10_signals.parquet   every 10th book event: p_up_* (only with --event-gold
                                           and the E10 models)
@@ -36,8 +40,8 @@ import pandas as pd  # noqa: E402
 from ofi.dataset import SPLIT, Split, list_days  # noqa: E402
 from ofi.labels import NEXT_COLS  # noqa: E402
 from ofi.schema import HORIZONS_MS  # noqa: E402
-from ofi.signals import (EVENT_SAMPLE, export_day, find_models, fit_final_linear, models_manifest,  # noqa: E402
-                         same_features)
+from ofi.signals import (EVENT_SAMPLE, export_day, find_models, fit_final_linear,  # noqa: E402
+                         fit_train_only_gbm, models_manifest, r2_check, same_features)
 
 
 def log(msg):
@@ -54,7 +58,11 @@ def main(argv=None) -> int:
     ap.add_argument("--models", default=str(ROOT / "models"))
     ap.add_argument("--e4", help="E4 test.csv: ridge strength per horizon for refitting the linear models")
     ap.add_argument("--horizons", nargs="+", type=int, default=HORIZONS_MS)
-    ap.add_argument("--days", nargs="+", help="days to export (default: the test days)")
+    ap.add_argument("--model-set", choices=["final", "train-only"], default="final",
+                    help="final: models fit on train + valid, export test days (default). "
+                         "train-only: fit on train days only (models/train_only), export validation days")
+    ap.add_argument("--threads", type=int, default=32, help="LightGBM threads (train-only refits)")
+    ap.add_argument("--days", nargs="+", help="days to export (default: test days; validation days for train-only)")
     ap.add_argument("--allow-in-sample", action="store_true",
                     help="allow exporting training/validation days (their predictions are in-sample!)")
     ap.add_argument("--split", nargs=3, metavar=("TRAIN", "VALID", "TEST"), help="(tests only) custom split")
@@ -63,8 +71,11 @@ def main(argv=None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     split = Split(*(tuple(x.split(",")) for x in args.split), name="custom") if args.split else SPLIT
-    days = args.days or list(split.test)
-    seen = sorted(set(days) & set(split.train + split.valid))
+    train_only = args.model_set == "train-only"
+    trained = list(split.train) if train_only else list(split.train + split.valid)
+    models_dir = Path(args.models) / "train_only" if train_only else Path(args.models)
+    days = args.days or list(split.valid if train_only else split.test)
+    seen = sorted(set(days) & set(trained))
     if seen and not args.allow_in_sample:
         print(f"error: {seen} were used to train the models; their predictions are in-sample. "
               "Use --allow-in-sample to export them anyway.", file=sys.stderr)
@@ -74,7 +85,7 @@ def main(argv=None) -> int:
         print(f"error: no 100 ms features for {missing} in {args.gold}", file=sys.stderr)
         return 2
 
-    need = [h for h in args.horizons if not (Path(args.models) / f"linear_{h}ms.json").exists()]
+    need = [h for h in args.horizons if not (models_dir / f"linear_{h}ms.json").exists()]
     if need:
         alphas = {}
         if args.e4 and Path(args.e4).exists():
@@ -82,17 +93,29 @@ def main(argv=None) -> int:
             alphas = e4[e4.features == "all"].set_index("horizon_ms")["alpha"].astype(float).to_dict()
         else:
             log("no --e4 table: refitting linear models without ridge (alpha 0)")
-        log(f"refitting linear models for {need} ms on {len(split.train + split.valid)} train + valid days")
-        fit_final_linear(args.train_gold or args.gold, list(split.train + split.valid), need, alphas, args.models)
+        log(f"fitting linear models for {need} ms on {len(trained)} {'training' if train_only else 'train + valid'} days")
+        note = ("E4 linear, all features, fit on the training days only (T9 step 0)" if train_only
+                else "E4 linear, all features (refit by ofi.signals)")
+        fit_final_linear(args.train_gold or args.gold, trained, need, alphas, models_dir, note)
+    if train_only:
+        need = [h for h in args.horizons if not (models_dir / f"gbm_{h}ms.txt").exists()]
+        if need:
+            lost = [h for h in need if not (Path(args.models) / f"gbm_{h}ms.txt").exists()]
+            if lost:
+                print(f"error: no E5 model gbm_<h>ms.txt for {lost} in {args.models} (settings and rounds come "
+                      "from it)", file=sys.stderr)
+                return 2
+            log(f"fitting LightGBM for {need} ms on {len(trained)} training days with E5's settings and rounds")
+            fit_train_only_gbm(args.train_gold or args.gold, trained, need, args.models, models_dir, args.threads)
 
-    clock, event = find_models(args.models, args.horizons, split)
+    clock, event = find_models(models_dir, args.horizons, split)
     if not clock:
-        print(f"error: no models found in {args.models}", file=sys.stderr)
+        print(f"error: no models found in {models_dir}", file=sys.stderr)
         return 2
     log("clock models: " + ", ".join(m.column for m in clock))
     use_event = bool(args.event_gold and event)
     if args.event_gold and not event:
-        log(f"--event-gold given but no E10 models (*_dir_{EVENT_SAMPLE}.*) in {args.models}: skipping event signals")
+        log(f"--event-gold given but no E10 models (*_dir_{EVENT_SAMPLE}.*) in {models_dir}: skipping event signals")
     if use_event:
         lost = sorted(set(days) - set(list_days(args.event_gold, sample=EVENT_SAMPLE)))
         if lost:
@@ -123,8 +146,11 @@ def main(argv=None) -> int:
             msg += f", {q.name}"
         log(msg)
 
-    manifest = models_manifest(clock + (event if use_event else []), days, files, split)
+    manifest = models_manifest(clock + (event if use_event else []), days, files, split, args.model_set)
     (Path(args.out) / "models.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    check = r2_check(args.out, files["clock"], clock)
+    check.to_csv(Path(args.out) / "check.csv", index=False)
+    log("R2 on the exported days: " + ", ".join(f"{r.column} {r.r2_oos:.2%}" for r in check.itertuples()))
     log(f"done: {len(days)} day(s), {len(manifest['models'])} model columns; files and models.json in {args.out}")
     return 0
 

@@ -53,6 +53,7 @@ class GBMModel:
     params: Dict = field(default_factory=dict)
     best_iteration: Optional[int] = None
     scale: float = TICK              # label units: dollars per model unit (1 for a classifier)
+    meta: Dict = field(default_factory=dict)   # free-form: training days, target mean, ...
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         return self.booster.predict(_matrix(X, self.cols), num_iteration=self.best_iteration) * self.scale
@@ -75,7 +76,7 @@ class GBMModel:
         self.booster.save_model(str(path), num_iteration=self.best_iteration)
         path.with_suffix(".json").write_text(json.dumps(
             {"cols": self.cols, "params": self.params, "best_iteration": self.best_iteration,
-             "label_scale": self.scale}, indent=2), encoding="utf-8")
+             "label_scale": self.scale, "meta": self.meta}, indent=2), encoding="utf-8")
 
     @classmethod
     def load(cls, path) -> "GBMModel":
@@ -83,7 +84,7 @@ class GBMModel:
         path = Path(path)
         meta = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
         return cls(meta["cols"], lgb.Booster(model_file=str(path)), meta["params"], None,
-                   meta.get("label_scale", TICK))
+                   meta.get("label_scale", TICK), meta.get("meta", {}))
 
 
 def _matrix(X: pd.DataFrame, cols) -> np.ndarray:

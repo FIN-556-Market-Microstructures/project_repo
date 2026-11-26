@@ -161,3 +161,36 @@ def test_export_signals_end_to_end(tmp_path):
     # in-sample days are refused
     r = run("export_signals.py", *args, "--out", tmp_path / "bad", "--days", DAYS[0])
     assert r.returncode == 2 and "in-sample" in r.stderr
+
+
+def test_train_only_models_reproduce_e5_validation(tmp_path):
+    """T9 step 0: train-only models score the validation days exactly as E5's
+    validation stage did, and training days are still refused."""
+    pytest.importorskip("lightgbm")
+    gold, models, out = tmp_path / "gold", tmp_path / "models", tmp_path / "sig_valid"
+    fake_gold(gold, "100ms", 3000, 100 * MS, 0)
+    hz = ["--horizons", "100", "1000"]
+    r = run("run_gbm.py", "--gold", gold, "--out", tmp_path / "e5", "--models", models, *hz, "--rounds", "60",
+            "--early-stopping", "10", "--threads", "2", "--shap-rows", "500", "--days", *SPLIT_ARGS)
+    assert r.returncode == 0, r.stderr[-2000:]
+    args = ["--gold", gold, "--models", models, *hz, "--split", *SPLIT_ARGS, "--model-set", "train-only",
+            "--threads", "2"]
+    r = run("export_signals.py", *args, "--out", out)
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
+
+    assert (out / f"nvda_{DAYS[3]}_signals.parquet").exists()                 # the validation day
+    assert not (out / f"nvda_{DAYS[4]}_signals.parquet").exists()             # not the test days
+    for h in (100, 1000):
+        assert (models / "train_only" / f"gbm_{h}ms.txt").exists()
+        assert (models / "train_only" / f"linear_{h}ms.json").exists()
+    man = json.loads((out / "models.json").read_text(encoding="utf-8"))
+    assert man["model_set"] == "train-only" and man["days"] == [DAYS[3]]
+    assert all(m["trained_on"] == DAYS[:3] for m in man["models"])
+
+    check = pd.read_csv(out / "check.csv").set_index("column")
+    e5 = pd.read_csv(tmp_path / "e5" / "valid.csv").set_index("horizon_ms")
+    for h in (100, 1000):
+        assert check.loc[f"pred_gbm_{h}ms", "r2_oos"] == pytest.approx(e5.loc[h, "r2_oos"], abs=1e-12)
+
+    r = run("export_signals.py", *args, "--out", tmp_path / "bad", "--days", DAYS[0])
+    assert r.returncode == 2 and "in-sample" in r.stderr
