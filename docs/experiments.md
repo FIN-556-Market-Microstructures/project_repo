@@ -14,7 +14,7 @@ row to the index.
 | E3 | [Real data quality (study days)](#e3-real-data-quality-study-days) | :white_check_mark: Done | [E3](results.md#e3-real-data-quality-study-days) |
 | E4 | [Linear OFI baseline on real NVDA](#e4-linear-ofi-baseline-on-real-nvda) | :white_check_mark: Done | [E4](results.md#e4-linear-ofi-baseline-on-real-nvda) |
 | E5 | [Gradient-boosted model vs. linear](#e5-gradient-boosted-model-vs-linear) | :white_check_mark: Done | [E5](results.md#e5-gradient-boosted-model-vs-linear) |
-| E6 | [Evaluation and robustness](#e6-evaluation-and-robustness) | :white_circle: Not started (T7) | — |
+| E6 | [Evaluation and robustness](#e6-evaluation-and-robustness) | :white_check_mark: Done | [E6](results.md#e6-evaluation-and-robustness) |
 | E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :white_circle: Not started (final step, after T8) | — |
 | E8 | [C++ vs Python ITCH parser](#e8-c-vs-python-itch-parser) | :white_check_mark: Done | [E8](results.md#e8-c-vs-python-itch-parser) |
 | E9 | [Features on real data: build and sanity check](#e9-features-on-real-data-build-and-sanity-check) | :white_check_mark: Done | [E9](results.md#e9-features-on-real-data-build-and-sanity-check) |
@@ -228,7 +228,7 @@ python scripts/run_robustness.py --gold /dev/shm/fin556/gold --out results/e6 \
   significant up to 500 ms; the edge should be weaker at the open and in the
   tariff regime, and almost no predictions should be big enough to pay the
   spread.
-- **Results:** —
+- **Results:** [Results → E6](results.md#e6-evaluation-and-robustness)
 
 ---
 

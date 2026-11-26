@@ -1,7 +1,7 @@
 # Results
 
 What each experiment found. How each one was run (data, commands) is on the
-[Experiments](experiments.md) page. Model results (E6–E7) will be added here
+[Experiments](experiments.md) page. The backtest (E7) will be added here
 as they are completed.
 
 ## Key findings so far
@@ -23,6 +23,11 @@ as they are completed.
 | Nonlinear model | LightGBM beats the linear model at every horizon up to 1 s, on **every** April day up to 500 ms: R² **2.1%** vs 1.2% at 10 ms, 1.8% vs 1.4% at 100 ms; hit rate **68%** at 10 ms. No gain at 5 s | [E5](#e5-gradient-boosted-model-vs-linear) |
 | What drives it | **Queue imbalance** at the best quotes carries 34–52% of the model's split gain; OFI features together 20–40%, mostly at the shortest horizons; recent volatility and activity next | [E5](#e5-gradient-boosted-model-vs-linear) |
 | Tradability (GBM) | Still almost no predictions above half the spread (≤ 0.02% of rows): the nonlinear model sharpens direction, not size | [E5](#e5-gradient-boosted-model-vs-linear) |
+| Significance | GBM's edge over linear is significant at every horizon up to 1 s (Diebold-Mariano t 7–52; day-bootstrap interval for the R² gain excludes zero; better on 20–21 of 21 days). Not at 5 s | [E6](#e6-evaluation-and-robustness) |
+| Where it works | Predictability is highest at a **1-tick spread** and in calm, quiet markets; weakest in the first 30 minutes and when the spread is wide. GBM beats linear in **every** regime up to 1 s | [E6](#e6-evaluation-and-robustness) |
+| OFI windows | Only the **10 ms** OFI window adds anything beyond the other features; longer windows add nothing | [E6](#e6-evaluation-and-robustness) |
+| Sampling | Sampling at book events instead of every 100 ms gives much higher R² at 10 ms (5.8% vs 1.1%, linear), but a model must be trained on the sampling it is used on | [E6](#e6-evaluation-and-robustness) |
+| Tradability (sense check) | Even the 0.1% most confident predictions are followed by moves averaging **under half the spread** (0.2–0.7× at 10 ms–1 s): crossing the spread on this signal loses money before fees | [E6](#e6-evaluation-and-robustness) |
 
 ---
 
@@ -345,6 +350,182 @@ Full tables: `results/e5/test.csv`, `test_by_day.csv`, `importance.csv`,
 **Caveats:** one tuning horizon (100 ms) for all horizons; a small grid
 (tuning made little difference, so a larger one is unlikely to change the
 picture); statistical tests of GBM vs linear come in T7.
+
+---
+
+## E6: Evaluation and robustness
+
+[How it was run](experiments.md#e6-evaluation-and-robustness)
+
+The two final models (E4 linear, all 38 features; E5 LightGBM) on the April
+test days, 4,912,950 rows. The run took under 5 minutes on the VM.
+
+### Summary for the final report
+
+LightGBM's advantage over the linear model is statistically significant at
+every horizon from 10 ms to 1 s, and it holds on almost every test day and in
+every market condition we looked at; at 5 s neither model has a usable
+signal and they are indistinguishable. Predictability is concentrated in
+calm, 1-tick-spread markets and is weakest just after the open. The result
+does not hinge on the session edges or on OFI window choices (only the
+10 ms OFI window matters beyond the other features). But the forecasts
+are small: even the model's most confident 0.1% of calls are followed, on
+average, by moves of less than half the spread, so a strategy that crosses
+the spread on these signals would lose money before fees. Any profitable use
+has to come from providing liquidity (E7).
+
+### 1. Significance
+
+R² with 95% intervals from resampling whole test days (2,000 draws).
+Diebold-Mariano t > 0 means LightGBM has smaller squared errors.
+
+| Horizon | Linear R² | GBM R² | GBM − linear | DM t (rows, HAC) | Days GBM better | Day-level p |
+|---|---|---|---|---|---|---|
+| 10 ms | 1.17% [1.03, 1.38] | **2.09%** [1.93, 2.34] | **+0.92%** [0.83, 1.00] | 51.1 | 21/21 | 0.0007 |
+| 50 ms | 1.42% [1.11, 1.92] | **2.05%** [1.69, 2.64] | **+0.63%** [0.56, 0.73] | 51.7 | 21/21 | 0.0001 |
+| 100 ms | 1.37% [1.01, 1.98] | **1.82%** [1.40, 2.55] | **+0.45%** [0.38, 0.58] | 47.4 | 21/21 | 1e-5 |
+| 500 ms | 0.66% [0.42, 1.10] | **0.77%** [0.51, 1.27] | **+0.12%** [0.09, 0.18] | 16.6 | 21/21 | 8e-8 |
+| 1 s | 0.35% [0.20, 0.61] | **0.41%** [0.25, 0.70] | **+0.06%** [0.04, 0.10] | 7.1 | 20/21 | 5e-6 |
+| 5 s | 0.06% [0.04, 0.12] | 0.06% [−0.01, 0.12] | −0.01% [−0.06, 0.05] | −0.4 | 8/21 | 0.8 |
+
+The intervals for each model's R² are wide (days differ a lot in how
+predictable they are), but the interval for the *difference* is narrow and
+excludes zero up to 1 s: on the same day, LightGBM is reliably better.
+
+### 2. Stability across days
+
+| Horizon | Daily R², linear (min / median) | Daily R², GBM (min / median) | GBM − linear (min / median) |
+|---|---|---|---|
+| 10 ms | 0.61% / 1.25% | 1.61% / 2.13% | +0.59% / +0.91% |
+| 100 ms | 0.54% / 2.03% | 0.86% / 2.58% | +0.28% / +0.57% |
+| 1 s | 0.04% / 0.74% | 0.05% / 0.92% | −0.04% / +0.07% |
+| 5 s | −0.01% / 0.14% | −0.09% / 0.11% | −0.14% / −0.02% |
+
+Up to 500 ms LightGBM beats linear on every single day (smallest daily
+gain: +0.59 points at 10 ms, +0.28 at 100 ms, +0.03 at 500 ms): the edge is
+not carried by one or two days. Full table:
+`results/e6/by_day.csv`.
+
+### 3. Regimes
+
+R² linear / GBM, at 10 ms and 100 ms (all horizons in `results/e6/regimes.csv`):
+
+| Regime | Group | Share of rows | 10 ms | 100 ms | GBM hit rate, 100 ms |
+|---|---|---|---|---|---|
+| Time of day | first 30 min | 7.7% | 0.85% / 1.50% | 0.72% / 1.02% | 57.0% |
+| | midday | 84.6% | 1.24% / 2.20% | 1.48% / 1.97% | 63.3% |
+| | last 30 min | 7.7% | 1.30% / 2.30% | 1.82% / 2.23% | 64.2% |
+| Spread | 1 tick | 73.0% | 1.69% / **2.64%** | 2.52% / **3.09%** | 67.3% |
+| | 2+ ticks | 27.0% | 0.81% / 1.70% | 0.57% / 0.95% | 57.0% |
+| Volatility (`vol_1s`) | low | 33.3% | 0.56% / 1.78% | 2.48% / **3.34%** | 71.6% |
+| | mid | 29.7% | 1.76% / 2.45% | 2.87% / 3.43% | 66.2% |
+| | high | 36.9% | 1.12% / 2.05% | 0.97% / 1.36% | 59.0% |
+| Activity (`n_events_1s`) | low | 25.6% | **0.03% / 1.26%** | 1.53% / 2.42% | 69.3% |
+| | mid | 30.0% | 1.34% / 1.97% | 2.46% / 2.93% | 66.7% |
+| | high | 44.4% | 1.23% / 2.17% | 1.15% / 1.57% | 60.0% |
+
+- **LightGBM beats linear in every group at every horizon up to 1 s.**
+- **A 1-tick spread is where the signal lives:** GBM's R² is 1.6× higher
+  than with a wider spread at 10 ms and over 3× higher at 100 ms. With a 1-tick spread the queue sizes at the best
+  quotes say a lot about which side will be depleted first; with a wider
+  spread new orders can arrive inside the spread and change the picture.
+- **Volatile, busy markets are the least predictable** beyond 10 ms; from
+  500 ms on, the calmest third is the most predictable, and at 100 ms its
+  hit rate reaches 72%.
+- **The open is hardest:** R² in the first 30 minutes is half to two thirds
+  of midday.
+- **The clearest nonlinearity:** in quiet markets (low activity) at 10 ms
+  the linear model explains almost nothing (0.03%) while LightGBM explains
+  1.26%. A linear model can't express "a given imbalance means something
+  different when the book is quiet"; trees can.
+
+### 4. Sensitivity
+
+**Session edges:** dropping the first and last 5 minutes changes R² by
+under 0.1 percentage points for both models (slightly up), whether or not
+the linear model is refit without them. The results don't depend on the
+open and close auctions' aftermath.
+
+**OFI windows** (April R², linear model on all non-OFI features plus OFI from
+the given window; LightGBM with and without OFI):
+
+| Variant | 10 ms | 50 ms | 100 ms | 500 ms | 1 s | 5 s |
+|---|---|---|---|---|---|---|
+| Linear, no OFI (22 features) | 0.90% | 1.31% | 1.31% | 0.65% | 0.36% | 0.08% |
+| + OFI 10 ms only | **1.16%** | 1.40% | 1.36% | 0.66% | 0.36% | 0.08% |
+| + OFI 100 ms only | 0.93% | 1.34% | 1.33% | 0.65% | 0.36% | 0.08% |
+| + OFI 1 s only | 0.90% | 1.31% | 1.31% | 0.64% | 0.35% | 0.08% |
+| + OFI 5 s only | 0.90% | 1.31% | 1.31% | 0.65% | 0.35% | 0.06% |
+| + all OFI (all 38 features) | 1.17% | 1.42% | 1.37% | 0.66% | 0.35% | 0.06% |
+| LightGBM, no OFI | 1.53% | — | 1.58% | — | — | — |
+| LightGBM, all features | 2.09% | — | 1.82% | — | — | — |
+
+- Given queue imbalance and the other features, **only the most recent
+  10 ms of order flow adds information** to the linear model; 1 s and 5 s
+  windows add nothing. OFI's predictive content is very short-lived.
+- OFI matters more to LightGBM: removing it costs 0.56 points of R² at
+  10 ms (27% of the total) and 0.24 at 100 ms.
+- At 5 s the OFI features slightly *hurt* the linear model (noise).
+
+**Event time vs clock time** (linear, all features; fit on 25–28 Mar, tested
+on 22–25 Apr; every 10th book event, 1.8M event rows vs 0.94M clock rows):
+
+| Fit on → tested on | 10 ms | 50 ms | 100 ms | 500 ms | 1 s | 5 s |
+|---|---|---|---|---|---|---|
+| clock → clock | 1.13% | 1.82% | 2.03% | 1.33% | 0.76% | 0.18% |
+| event → event | **5.84%** | **3.96%** | **3.24%** | 0.96% | 0.54% | 0.34% |
+| clock → event | 2.65% | 2.77% | 2.59% | 1.14% | 0.61% | 0.04% |
+| event → clock | −22.98% | −1.82% | 0.63% | 0.90% | 0.48% | 0.12% |
+
+- **Predictability is concentrated right after book events.** Measured at
+  events, R² at 10 ms is about 5× higher than on the 100 ms clock, and even
+  the clock-trained model does better on event rows (2.65%) than on clock
+  rows. Just after the book changes, a price move is more likely and easier
+  to call; at a random clock time, often nothing happens.
+- **Train on the sampling you will use.** The event-trained model applied to
+  clock rows has a strongly negative R² at 10 ms, although its hit rate is
+  still 70%: it expects moves of event-time size and overshoots in quiet
+  clock intervals. The direction carries over; the size does not.
+- Beyond 500 ms the two samplings give similar results.
+- The R² values in different rows are on different test rows, so the
+  comparison is about direction, not exact size. This was run on 8 days
+  with the linear model only.
+
+### 5. Economic sense check (not a backtest)
+
+How large and how accurate are the most confident predictions? "Realised
+move" is the average mid change in the predicted direction, as a multiple of
+half the spread (crossing the spread costs at least half the spread each
+way).
+
+| Horizon | Model | Most confident | Hit rate | Predicted / ½ spread | Realised move / ½ spread |
+|---|---|---|---|---|---|
+| 10 ms | GBM | top 10% | 73.7% | 0.15 | 0.15 |
+| | GBM | top 0.1% | 74.5% | 0.31 | 0.38 |
+| 100 ms | linear | top 0.1% | 67.6% | 0.61 | 0.49 |
+| | GBM | top 10% | 68.4% | 0.41 | 0.41 |
+| | GBM | top 0.1% | 65.7% | 0.48 | 0.47 |
+| 500 ms | GBM | top 1% | 64.3% | 0.76 | 0.75 |
+| 1 s | GBM | top 1% | 61.1% | 0.75 | 0.73 |
+| | GBM | top 0.1% | 56.4% | 0.75 | 0.56 |
+
+- **None of the top 10% / 1% / 0.1% subsets clears half the spread on
+  average** at any horizon up to 1 s; the best is about 0.75× (GBM's top 1%
+  at 500 ms – 1 s).
+- Predictions above half the spread are almost nonexistent: none at
+  10–50 ms, 36 rows (GBM) at 100 ms, at most 0.15% of rows (linear, 1 s),
+  with hit rates of 52–76% and realised moves mostly below half the spread.
+- **LightGBM's predicted sizes are well calibrated** (predicted ≈ realised
+  at 10–500 ms); the linear model's most confident predictions overshoot.
+- **The direction is good, the size is small.** Up to 500 ms, 60–75% of
+  confident calls are right, but the moves they predict are a fraction of
+  a tick. That favours strategies that earn the spread (posting quotes and
+  using the signal to choose when and on which side) over ones that pay it.
+
+**Caveats:** one test month; regimes are not independent (wide spreads,
+high volatility and the open overlap); the event-time check uses 8 days and
+the linear model only; the sense check ignores fees, queue position and
+latency, which E7 has to model.
 
 ---
 
