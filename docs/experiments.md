@@ -15,7 +15,7 @@ row to the index.
 | E4 | [Linear OFI baseline on real NVDA](#e4-linear-ofi-baseline-on-real-nvda) | :white_check_mark: Done | [E4](results.md#e4-linear-ofi-baseline-on-real-nvda) |
 | E5 | [Gradient-boosted model vs. linear](#e5-gradient-boosted-model-vs-linear) | :white_check_mark: Done | [E5](results.md#e5-gradient-boosted-model-vs-linear) |
 | E6 | [Evaluation and robustness](#e6-evaluation-and-robustness) | :white_check_mark: Done | [E6](results.md#e6-evaluation-and-robustness) |
-| E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :hourglass: In progress (T9): step 0 and E7a done; E7b/E7c next | [E7](results.md#e7-backtest) |
+| E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :hourglass: In progress (T9): step 0, E7a, E7b done; E7c next | [E7](results.md#e7-backtest) |
 | E8 | [C++ vs Python ITCH parser](#e8-c-vs-python-itch-parser) | :white_check_mark: Done | [E8](results.md#e8-c-vs-python-itch-parser) |
 | E9 | [Features on real data: build and sanity check](#e9-features-on-real-data-build-and-sanity-check) | :white_check_mark: Done | [E9](results.md#e9-features-on-real-data-build-and-sanity-check) |
 | E10 | [Direction of the next price move (event time)](#e10-direction-of-the-next-price-move-event-time) | :hourglass: Code ready (T7b), not yet run | — |
@@ -300,7 +300,39 @@ python scripts/run_taker.py --signals-valid /dev/shm/fin556/signals_valid \
     --out results/e7a 2>&1 | tee e7a.log
 ```
 
-- **Results:** [Results → E7](results.md#e7-backtest) (step 0, E7a)
+- **E7b: the fill simulator** (`src/backtest/queue.py`, check:
+  `scripts/check_simulator.py`). With 100-share orders and no market impact,
+  each of our resting orders can be simulated on its own against the real
+  messages at its price level:
+    - the day's messages are turned once (vectorised) into changes of
+      displayed size per price level, each tagged with the order it belongs
+      to and when that order joined the queue
+    - our order joins the **back** of the queue; executions and cancels of
+      orders **ahead** of us move us up (a replace loses priority, so it
+      leaves the queue ahead of us); cancels of later orders don't
+    - an execution at our price with nothing ahead fills us; the market
+      trading **through** our price (a bid executing below our bid, or an ask
+      posted at or below it) fills the rest
+    - our cancels take effect at their exchange arrival time
+    - hidden executions don't move the displayed queue (and their side isn't
+      reported), so they're ignored
+  - **Verification:** hand-built message streams with known answers (every
+    rule above), agreement with the T1 book rebuild at every top-5 level,
+    and on real days: 2,000 random "post and wait" orders per day (best bid or
+    ask, cancelled after 10 s) checked against the rebuilt book (queue at
+    entry, fill times, trade-throughs), with fill rates by queue size and
+    markouts at 100 ms / 1 s / 5 s.
+
+```bash
+# silver messages for the same 32 days (several GB; check df -h /dev/shm first)
+rclone copy box:fin556/silver /dev/shm/fin556/silver_msgs --transfers 8 \
+    --include "nvda_2025031[7-9]_messages.parquet" --include "nvda_2025032*_messages.parquet" \
+    --include "nvda_2025033*_messages.parquet" --include "nvda_202504*_messages.parquet"
+python scripts/check_simulator.py --messages /dev/shm/fin556/silver_msgs \
+    --book /dev/shm/fin556/silver_book --out results/e7b 2>&1 | tee e7b.log
+```
+
+- **Results:** [Results → E7](results.md#e7-backtest) (step 0, E7a, E7b)
 
 ---
 
