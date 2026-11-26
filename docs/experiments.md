@@ -13,7 +13,7 @@ row to the index.
 | E2 | [Evaluation harness on synthetic features](#e2-evaluation-harness-on-synthetic-features) | :white_check_mark: Done | [E2](results.md#e2-evaluation-harness-on-synthetic-features) |
 | E3 | [Real data quality (study days)](#e3-real-data-quality-study-days) | :white_check_mark: Done | [E3](results.md#e3-real-data-quality-study-days) |
 | E4 | [Linear OFI baseline on real NVDA](#e4-linear-ofi-baseline-on-real-nvda) | :white_check_mark: Done | [E4](results.md#e4-linear-ofi-baseline-on-real-nvda) |
-| E5 | [Gradient-boosted model vs. linear](#e5-gradient-boosted-model-vs-linear) | :white_circle: Not started (T6) | — |
+| E5 | [Gradient-boosted model vs. linear](#e5-gradient-boosted-model-vs-linear) | :white_check_mark: Done | [E5](results.md#e5-gradient-boosted-model-vs-linear) |
 | E6 | [Evaluation and robustness](#e6-evaluation-and-robustness) | :white_circle: Not started (T7) | — |
 | E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :white_circle: Not started (final step, after T8) | — |
 | E8 | [C++ vs Python ITCH parser](#e8-c-vs-python-itch-parser) | :white_check_mark: Done | [E8](results.md#e8-c-vs-python-itch-parser) |
@@ -166,13 +166,14 @@ python scripts/run_linear.py --gold /dev/shm/fin556/gold --out results/e4 2>&1 |
 
 ```bash
 pip install -r requirements.txt            # adds lightgbm
-python scripts/run_gbm.py --gold /dev/shm/fin556/gold --out results/e5     --e4 results/e4/test.csv --threads 32 2>&1 | tee e5.log
+python scripts/run_gbm.py --gold /dev/shm/fin556/gold --out results/e5 \
+    --e4 results/e4/test.csv --threads 32 2>&1 | tee e5.log
 ```
 
 - **Expected:** if nonlinear effects matter (e.g. OFI mattering more when the
   spread is wide or the queue is thin), GBM beats the linear 1.2–1.4% at short
   horizons; feature importance shows what drives the signal beyond OFI.
-- **Results:** —
+- **Results:** [Results → E5](results.md#e5-gradient-boosted-model-vs-linear)
 
 ---
 
