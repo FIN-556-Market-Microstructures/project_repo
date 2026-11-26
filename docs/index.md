@@ -25,7 +25,7 @@ slippage and latency? Finding that it does not is also a valid result.
 | Models | Direction of the next price move at book events (probability; T7b) | :hourglass: Code ready, run pending ([E10](experiments.md#e10-direction-of-the-next-price-move-event-time)) |
 | Hand-off | Signal files for the backtest: predictions per test day + `models.json` (T8) | :white_check_mark: Done: 21 April days × 234,000 rows, linear + LightGBM at 6 horizons, in Box `fin556/signals` ([signals](schema.md#signals-for-the-backtest)); event-time probabilities to follow E10 |
 | Costs | Backtest E7a: crossing the spread on the signals | :white_check_mark: Done: loses on every April day at every setting; the signal covers ~1/10 of the cost ([E7a](results.md#e7a-crossing-the-spread)) |
-| Costs | Spread, fees, slippage, latency evaluation | :white_circle: Not started (sense check: confident predictions average under half the spread, [E6](results.md#5-economic-sense-check-not-a-backtest)) |
+| Costs | Backtest E7b–c: fill simulator; quoting with vs without the signal | :white_check_mark: Done: simulator exact on 32 days; quoting loses −$15k/day; the signal cuts the loss only by trading less ([E7c](results.md#e7c-quoting-with-vs-without-the-signal)) |
 
 ## Where to read
 

@@ -1,7 +1,7 @@
 # Results
 
 What each experiment found. How each one was run (data, commands) is on the
-[Experiments](experiments.md) page. The backtest (E7) is being added part by part
+[Experiments](experiments.md) page. The backtest (E7) is complete for the 100 ms signals; the event-time probabilities (E10) are still to come
 as they are completed.
 
 ## Key findings so far
@@ -31,6 +31,8 @@ as they are completed.
 | Backtest: crossing the spread | **Every** setting loses on **every** April day (0 of 630 model-days positive): the trades capture 0.1–0.5¢ per share of real move, but crossing in and out costs 1.6–3.0¢ plus 0.6¢ of fees. Even perfect foresight loses at 10 ms unless it trades only the largest moves | [E7a](#e7a-crossing-the-spread) |
 | Fill simulator | Matches the rebuilt book exactly (63,918 of 63,918 queue sizes, 0 impossible fills, 32 days) | [E7b](#e7b-fill-simulator) |
 | Posting without a signal | A quote at the best price fills 82% of the time within 10 s, but the price then moves against it: it earns +0.35¢ of half spread and ends **−0.42¢** per share a second later, on every one of 32 days. With a $0.0020 rebate that's still **−0.21¢**: plain quoting loses; the signal has to avoid enough bad fills | [E7b](#e7b-fill-simulator) |
+| Quoting, no signal | Quoting the best bid and ask all day loses **−$15,400 per April day** (−0.29¢ per share on 5.2M shares; every day negative): the $0.0020 rebate covers less than half of the adverse selection. Still negative with the best-tier rebate, zero latency or any setting tested | [E7c](#e7c-quoting-with-vs-without-the-signal) |
+| Quoting with the signal | Withdrawing the side the forecast says will be picked off cuts the loss by $5,400–7,300 a day (every day, t ≈ 5), but **only by trading 40–50% less**: per share it loses the same, and its fills are no better. At equal volume the signal adds nothing | [E7c](#e7c-quoting-with-vs-without-the-signal) |
 
 ---
 
@@ -680,6 +682,93 @@ after them while earlier orders were still ahead (Nasdaq order types that
 don't follow simple time priority); the simulator then conservatively doesn't
 fill us. Hidden-order executions are ignored. Our orders never change what
 others do.
+
+### E7c: quoting with vs without the signal
+
+Every 100 ms, for each side, keep a 100-share order at the current best
+price (left alone while the price is unchanged, so it keeps its place in the
+queue; cancelled and re-posted when the price moves; re-posted after a
+fill); inventory limit ±500 shares; quoting stops at 15:59 and any position
+is closed by crossing the spread. Fills from the E7b simulator, $0.0020
+rebate per filled share, $0.0030 fee on the closing trade, 20 µs reaction +
+85 µs order delay. **S1** withdraws the offer when the forecast is in the top
+w of |forecast| and positive, the bid when negative. Each model's setting
+chosen on March (11 days), April (21 days) run once.
+
+**April: no signal vs each model's setting chosen on March** (per day)
+
+| Strategy | Net P&L | Days > 0 | Shares traded | Net / share | Edge | Markout 1 s | Filled by trade-through | Rebates |
+|---|---|---|---|---|---|---|---|---|
+| **S0** (no signal) | **−$15,368** | 0 / 21 | 5.24M | −0.29¢ | +0.24¢ | −0.46¢ | 62% | +$10,482 |
+| S1 linear, 10 ms, top 50% | −$9,975 | 0 / 21 | 3.25M | −0.31¢ | +0.24¢ | −0.48¢ | 63% | +$6,504 |
+| S1 LightGBM, 100 ms, top 50% | −$8,094 | 0 / 21 | 2.77M | −0.29¢ | +0.23¢ | −0.48¢ | 64% | +$5,537 |
+
+**The signal's value, two ways** (April, per day; t-test across the 21 days)
+
+| Strategy | S1 − S0 as run | Days better | Volume vs S0 | **S1 − S0 at equal volume** | t | Days better |
+|---|---|---|---|---|---|---|
+| S1 linear, 10 ms, top 50% | +$5,392 [+3,686, +7,307] | 21 / 21 | 60% | **−$285** | −1.1 | 6 / 21 |
+| S1 LightGBM, 100 ms, top 50% | +$7,273 [+4,698, +10,101] | 21 / 21 | 53% | **+$57** | +0.2 | 7 / 21 |
+
+"At equal volume" compares S1 with S0's own loss per share applied to S1's
+smaller volume: what S0 would have lost trading that much less. Across all
+16 S1 settings the equal-volume difference ranges from −$562 to +$214 a day,
+none significantly positive (best t = 1.3), and markouts never improve (−0.44
+to −0.46¢ for S1 vs −0.44¢ for S0, day average).
+
+**Sensitivity** (April, net per day)
+
+| Strategy | Base | Order delay 0 µs | 500 µs | Pessimistic fills (trade-through only) | No rebate | Best-tier rebate ($0.0032) |
+|---|---|---|---|---|---|---|
+| S0 | −$15,368 | −$15,357 | −$15,421 | −$19,309 | −$25,849 | −$9,079 |
+| S1 linear | −$9,975 | −$10,021 | −$10,044 | −$12,513 | −$16,479 | −$6,073 |
+| S1 LightGBM | −$8,094 | −$8,108 | −$8,194 | −$10,207 | −$13,631 | −$4,772 |
+
+The tariff week dominates the losses (S0: −$36,900 a day on 7–10 April vs
+−$10,300 on the other days; March: −$7,700 a day).
+
+**Interpretation**
+
+- **Plain quoting loses money.** Posting at the best price all day trades
+  5.2M shares a day and loses 0.29¢ on each: the half spread earned
+  (+0.24¢) and the rebate (+0.20¢) don't cover the adverse move after the
+  fill (−0.46¢ within a second, as in E7b). It loses on every April day,
+  with any latency, and even at the best rebate tier.
+- **The signal reduces the loss only by reducing trading.** The as-run
+  comparison looks decisive (+$5–7k a day, every day, t ≈ 5), but S1's loss
+  per share and its markouts are the same as S0's or slightly worse. At
+  equal volume the signal is worth nothing. **The headline S1 − S0 number
+  should not be read as the value of the signal.**
+- **Why the forecasts don't help here,** although they get the direction
+  right 60–70% of the time:
+    - *Timing:* decisions sit on the 100 ms grid, but the adverse moves that
+      hurt a quote happen within milliseconds of a book event (E6: R² at
+      book events is 5× higher than on the clock). By the time the 100 ms
+      forecast is acted on, the damaging fills have mostly happened.
+    - *Queue cost:* withdrawing and re-posting a side sends the new order to
+      the back of the queue, so more of its fills come from the price moving
+      through it (62% → 64%), the worst kind of fill.
+    - *Size:* the forecasts are mostly about moves within the spread (E6);
+      they help pick a direction, not avoid the large moves that drive
+      adverse selection.
+- **Conclusion for the project:** on this data, neither taking liquidity
+  (E7a) nor posting it (E7c) on the 100 ms OFI signals makes money after
+  realistic costs. The signals are real and significant (E4–E6) but not
+  exploitable at this decision frequency. The natural next test is the
+  event-time direction probability (E10) driving event-time quoting
+  decisions, which addresses the timing problem directly.
+
+**Caveats:**
+
+- 72,000 fills a day (about 2% of NVDA's volume) under a no-impact
+  assumption is generous to the strategy; real losses would likely be
+  larger.
+- The equal-volume comparison assumes the fills S1 skips would have lost
+  the average amount. A strategy that withdraws at random at the same rate
+  would make that exact.
+- Inventory can briefly overshoot the ±500 limit by one order while the
+  strategy hasn't yet seen a fill (maximum 599 shares).
+- One month, one stock, one fee schedule.
 
 ---
 
