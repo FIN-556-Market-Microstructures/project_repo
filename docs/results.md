@@ -29,6 +29,8 @@ as they are completed.
 | Sampling | Sampling at book events instead of every 100 ms gives much higher R² at 10 ms (5.8% vs 1.1%, linear), but a model must be trained on the sampling it is used on | [E6](#e6-evaluation-and-robustness) |
 | Tradability (sense check) | Even the 0.1% most confident predictions are followed by moves averaging **under half the spread** (0.2–0.7× at 10 ms–1 s): crossing the spread on this signal loses money before fees | [E6](#e6-evaluation-and-robustness) |
 | Backtest: crossing the spread | **Every** setting loses on **every** April day (0 of 630 model-days positive): the trades capture 0.1–0.5¢ per share of real move, but crossing in and out costs 1.6–3.0¢ plus 0.6¢ of fees. Even perfect foresight loses at 10 ms unless it trades only the largest moves | [E7a](#e7a-crossing-the-spread) |
+| Fill simulator | Matches the rebuilt book exactly (63,918 of 63,918 queue sizes, 0 impossible fills, 32 days) | [E7b](#e7b-fill-simulator) |
+| Posting without a signal | A quote at the best price fills 82% of the time within 10 s, but the price then moves against it: it earns +0.35¢ of half spread and ends **−0.42¢** per share a second later, on every one of 32 days. With a $0.0020 rebate that's still **−0.21¢**: plain quoting loses; the signal has to avoid enough bad fills | [E7b](#e7b-fill-simulator) |
 
 ---
 
@@ -606,6 +608,78 @@ $410 (linear) and $303 (LightGBM) per day.
 **Caveats:** one month; 100 shares (larger orders would pay more); decisions
 on the 100 ms grid (event-time decisions might capture more of the very short
 moves, but not 10× more); fees at a standard taker rate.
+
+### E7b: fill simulator
+
+Checked on all 32 March and April days: 2,000 random "post and wait" orders
+per day (64,000 in total), 100 shares at the best bid or ask, arriving 272 µs
+after the book they react to (feed delay + reaction + order delay),
+cancelled after 10 s.
+
+**Invariants: all exact**
+
+| Check | Result |
+|---|---|
+| Queue at entry = displayed size in the rebuilt book | **63,918 of 63,918** match |
+| Fills outside the order's lifetime | 0 |
+| Orders filled beyond their size | 0 |
+| Trade-through fills the book doesn't show | 0 |
+| Executions or cancels of unknown orders | 0 (all 32 days) |
+
+**Speed:** preprocessing 26 s per day (median, 8.8M messages; 125 s on
+7 April's 34.5M), then ~4,700 simulated orders per second. Fast enough in
+plain Python; no C++ needed.
+
+**What posting at the best price looks like** (cents per share; *edge* = half
+spread earned against the mid just before the fill; *markout* = mid after the
+fill minus our price, in our favour if positive)
+
+| Group | Share of orders | Filled in 10 s | Filled by trade-through | Median time to fill | Edge | Markout 100 ms | 1 s | 5 s |
+|---|---|---|---|---|---|---|---|---|
+| **All** | 100% | **82%** | 51% | 0.7 s | +0.35 | **−0.42** | −0.41 | −0.43 |
+| Queue ahead ≤ 200 shares | 20% | 89% | 61% | 0.4 s | +0.32 | −0.40 | −0.37 | −0.38 |
+| 201–500 | 44% | 84% | 52% | 0.7 s | +0.36 | −0.40 | −0.40 | −0.44 |
+| 501–1,000 | 26% | 78% | 44% | 1.1 s | +0.38 | −0.40 | −0.40 | −0.40 |
+| 1,000–2,000 | 7% | 75% | 45% | 1.1 s | +0.37 | −0.50 | −0.48 | −0.52 |
+| 2,000–5,000 | 2% | 78% | 47% | 1.3 s | +0.37 | −0.65 | −0.79 | −0.83 |
+| > 5,000 | 1% | 68% | 47% | 1.5 s | +0.34 | −0.88 | −1.08 | −1.24 |
+
+| Fill type | Fills | Edge | Markout 1 s |
+|---|---|---|---|
+| Our turn in the queue came | 25,888 | +0.57 | −0.28 |
+| The price moved through us | 27,320 | +0.15 | −0.53 |
+
+**Interpretation**
+
+- **The simulator agrees with the data everywhere we can check it.** Every
+  queue size at entry matches the independently rebuilt book, and every
+  trade-through fill is visible in it. Its results can be trusted as far as
+  its assumptions go (back of the queue, no market impact).
+- **Posting earns the spread and then gives more back.** A passive fill
+  earns about a third of a cent against the mid, but within 100 ms the price
+  has moved against it by more: **−0.42¢ per share** net of the spread, on
+  every one of the 32 days. That's adverse selection: the orders that hit our
+  quote tend to be informed, or the market is about to move through us.
+- **Half the fills are the bad kind.** 51% of fills come from the price
+  moving through our quote: those earn little (+0.15¢) and lose −0.53¢. Fills
+  that come from patiently reaching the front of the queue do better
+  (−0.28¢) but still lose.
+- **Bigger queues mean worse fills.** Behind a long queue we only get filled
+  when the whole queue is swept away, which happens when the price is about
+  to move: markouts fall from −0.4¢ to −1.2¢.
+- **Almost all of the damage happens within 100 ms**, and it doesn't revert
+  over 5 s: the move is information, not noise. Our models predict exactly
+  this horizon.
+- **What this means for E7c:** plain quoting (S0) should lose about 0.4¢ per
+  share before rebates and ~0.2¢ after a $0.0020 rebate. To make quoting
+  profitable the signal has to avoid enough of the bad fills (the ones
+  followed by the price moving through us) to recover at least that.
+
+**Limitations:** 4% of orders saw an execution of an order that joined
+after them while earlier orders were still ahead (Nasdaq order types that
+don't follow simple time priority); the simulator then conservatively doesn't
+fill us. Hidden-order executions are ignored. Our orders never change what
+others do.
 
 ---
 
