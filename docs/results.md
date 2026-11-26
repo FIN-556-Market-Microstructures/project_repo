@@ -1,7 +1,7 @@
 # Results
 
 What each experiment found. How each one was run (data, commands) is on the
-[Experiments](experiments.md) page. The backtest (E7) will be added here
+[Experiments](experiments.md) page. The backtest (E7) is being added part by part
 as they are completed.
 
 ## Key findings so far
@@ -28,6 +28,7 @@ as they are completed.
 | OFI windows | Only the **10 ms** OFI window adds anything beyond the other features; longer windows add nothing | [E6](#e6-evaluation-and-robustness) |
 | Sampling | Sampling at book events instead of every 100 ms gives much higher R² at 10 ms (5.8% vs 1.1%, linear), but a model must be trained on the sampling it is used on | [E6](#e6-evaluation-and-robustness) |
 | Tradability (sense check) | Even the 0.1% most confident predictions are followed by moves averaging **under half the spread** (0.2–0.7× at 10 ms–1 s): crossing the spread on this signal loses money before fees | [E6](#e6-evaluation-and-robustness) |
+| Backtest: crossing the spread | **Every** setting loses on **every** April day (0 of 630 model-days positive): the trades capture 0.1–0.5¢ per share of real move, but crossing in and out costs 1.6–3.0¢ plus 0.6¢ of fees. Even perfect foresight loses at 10 ms unless it trades only the largest moves | [E7a](#e7a-crossing-the-spread) |
 
 ---
 
@@ -526,6 +527,85 @@ way).
 high volatility and the open overlap); the event-time check uses 8 days and
 the linear model only; the sense check ignores fees, queue position and
 latency, which E7 has to model.
+
+---
+
+## E7: Backtest
+
+[How it was run](experiments.md#e7-trading-costs-and-latency-backtest)
+
+**Step 0 (verified):** the train-only models used for tuning reproduce the
+validation R² of E4 and E5 exactly (all 12 columns, e.g. 2.62% for LightGBM
+at 100 ms), so the March signal files are genuinely out of sample.
+
+### E7a: crossing the spread
+
+Buy at the ask or sell at the bid when the forecast is in the top q, exit
+h ms later by crossing back; 100 shares, one position at a time; fills
+against the event-level book at arrival time (signal capture time + 20 µs
+reaction + 85 µs order delay), walking the book if needed; $0.0030 per
+share each way. Cut-offs and each model's horizon and strength chosen on
+March (11 days, train-only models), April (21 days) run once. Run time:
+under 2 minutes on the VM.
+
+**Chosen on March, run once on April**
+
+| Model | Setting | Trades / day | Hit rate | Move before costs | Spread paid (in + out) | Fees | **Net / share** | **Net / day** | Days > 0 |
+|---|---|---|---|---|---|---|---|---|---|
+| Linear | 1 s, top 0.1% | 240 | 55.6% | +0.29¢ | 2.00¢ | 0.60¢ | **−2.31¢** | **−$554** | 0 / 21 |
+| LightGBM | 1 s, top 0.1% | 112 | 54.5% | +0.31¢ | 3.00¢ | 0.60¢ | **−3.30¢** | **−$371** | 0 / 21 |
+
+"Move before costs" is the mid-price change in the trade's direction between
+entry and exit, after latency. Both settings were chosen because they lose
+the least *per day*, which mostly means they trade the least; per share,
+every setting loses about the same.
+
+**Every April setting, net per share and the move captured** (cents per share; the full grid,
+in `results/e7a/test_grid.csv`):
+
+| Horizon | Top | Linear: move / net | LightGBM: move / net | **Oracle**: move / net | Random: move / net |
+|---|---|---|---|---|---|
+| 10 ms | 10% | +0.07 / −2.24 | +0.07 / −2.32 | +1.26 / **−1.22** | 0.00 / −2.37 |
+| 10 ms | 0.1% | +0.12 / −2.04 | +0.22 / −2.79 | +5.66 / +0.72 | 0.00 / −2.91 |
+| 100 ms | 10% | +0.21 / −2.21 | +0.22 / −2.19 | +2.83 / +0.27 | 0.00 / −2.32 |
+| 100 ms | 0.1% | +0.28 / −2.18 | +0.39 / −3.18 | +8.59 / +4.58 | 0.00 / −3.28 |
+| 500 ms | 1% | +0.31 / −2.29 | +0.41 / −2.53 | +7.04 / +4.11 | 0.00 / −2.52 |
+| 1 s | 10% | +0.30 / −2.08 | +0.33 / −2.03 | +4.27 / +1.98 | +0.01 / −2.16 |
+| 1 s | 0.1% | +0.29 / −2.31 | +0.31 / −3.30 | +15.46 / +11.75 | +0.13 / −3.02 |
+
+**Latency hardly matters here:** with order delays of 0, 85 and 500 µs the
+chosen strategies lose −2.31 / −2.31 / −2.32¢ (linear) and −3.30 / −3.30 /
+−3.28¢ (LightGBM) per share. Decisions are made on a 100 ms grid, so a few
+hundred microseconds more makes no difference. Without fees they still lose
+$410 (linear) and $303 (LightGBM) per day.
+
+**Interpretation**
+
+- **The signal is real but far too small to pay for crossing.** Every model
+  trade captures a positive move in the right direction (+0.07¢ at 10 ms up
+  to +0.5¢ per share at 500 ms), while random trades at the same moments
+  capture nothing. But the round trip costs 1.6–3.0¢ of spread plus 0.6¢ of
+  fees: the signal covers about a tenth of the cost. Not one of the 630
+  model-days in the grid made money.
+- **The spread paid is more than one tick.** A round trip at a 1-tick spread
+  costs 1¢; these trades pay 1.6–3.0¢ on average because strong forecasts
+  come when the market is volatile and the spread is wide. LightGBM's most
+  confident trades sit at a median entry half-spread of 1.5¢ (a 3-tick
+  spread), and 57% of them fall in the 7–10 April tariff selloff. The
+  model is most confident exactly when crossing is most expensive.
+- **Even perfect foresight loses at 10 ms** when it trades the top 10% of
+  moves (−1.22¢ per share, every day negative): at that horizon most moves
+  are half a tick, smaller than the cost of getting in and out. The oracle
+  only becomes profitable for the largest moves or longer horizons. Our
+  models capture 2–8% of the oracle's move.
+- **Conclusion:** taking liquidity on these signals is not viable at any
+  horizon, strength, latency or fee level we tested. This confirms E6's sense
+  check with actual fills. Whether the direction information helps a
+  strategy that *earns* the spread is the question for E7b/E7c.
+
+**Caveats:** one month; 100 shares (larger orders would pay more); decisions
+on the 100 ms grid (event-time decisions might capture more of the very short
+moves, but not 10× more); fees at a standard taker rate.
 
 ---
 
