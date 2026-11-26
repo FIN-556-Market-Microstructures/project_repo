@@ -105,6 +105,71 @@ should keep them when present.
 | `orig_order_id` | messages | for `REPLACE`: the order being replaced (needed for the book rebuild) |
 | `note` | messages | message-specific extras from the parser |
 
+## signals (for the backtest)
+
+The models' output, one file per **test day** (April 2025, never used for
+training or model choice), so the backtest can start without touching model
+code. Made by `scripts/export_signals.py` (`src/ofi/signals.py`, ticket T8).
+
+**`nvda_<YYYYMMDD>_signals.parquet`**: one row every 100 ms, 09:30–16:00 ET
+(234,000 rows per day).
+
+| Column | Type | Meaning |
+|---|---|---|
+| `ts_ns` | int64 | exchange time of the observation: the clock tick. Features use only book events and trades at or before it |
+| `capture_ts_ns` | Int64 | when we could have known it: the capture time of the last book event the row uses, shifted to `ts_ns` (≈ `ts_ns` + 167 µs). **The earliest a strategy can act on the row** |
+| `symbol` | string | `NVDA` |
+| `bid_px_1`, `ask_px_1` | float64 | best bid / ask at `ts_ns`, dollars |
+| `bid_sz_1`, `ask_sz_1` | float | shares at the best bid / ask |
+| `mid`, `spread` | float64 | at `ts_ns`, dollars |
+| `pred_linear_<h>ms` | float64 | predicted mid change over the next h ms, dollars: linear model, all 38 features ([E4](results.md#e4-linear-ofi-baseline-on-real-nvda)) |
+| `pred_gbm_<h>ms` | float64 | the same from LightGBM ([E5](results.md#e5-gradient-boosted-model-vs-linear)); the better model up to 1 s ([E6](results.md#e6-evaluation-and-robustness)) |
+| `ret_<h>ms` | float64 | **realised** mid change over h ms. For checking only: a strategy must never use it to decide anything |
+
+h ∈ {10, 50, 100, 500, 1000, 5000}.
+
+**`nvda_<YYYYMMDD>_event10_signals.parquet`** (once E10 has been run): one
+row at every 10th order book event, same first nine columns, then
+
+| Column | Type | Meaning |
+|---|---|---|
+| `p_up_qi_logit` | float64 | probability that the next mid change is up: queue imbalance alone ([E10](experiments.md#e10-direction-of-the-next-price-move-event-time)) |
+| `p_up_logit` | float64 | the same, logistic regression on all 38 features |
+| `p_up_gbm` | float64 | the same, LightGBM classifier |
+| `next_dir`, `next_dt_ms` | float64 | **realised** direction of the next mid change (+1 / −1) and time until it. Checking only |
+
+**`models.json`**, next to the files: for every prediction column, the model
+file and its SHA-256 checksum, the training days, settings (ridge strength,
+LightGBM parameters and rounds), the features it reads, the split, the git
+commit and the export time.
+
+Guarantees, tested in `tests/test_signals.py`:
+
+- **No look-ahead:** every feature uses only data at or before `ts_ns`
+  (cutting a day's book at any time leaves the earlier features unchanged),
+  and the export refuses a model that reads any non-predictor column.
+- **Out of sample:** the export refuses training or validation days unless
+  explicitly told otherwise (`--allow-in-sample`).
+- **Reproducible:** exporting twice, or after refitting the linear models
+  from scratch, gives identical files; rebuilt feature files are checked
+  against the build the models were evaluated on.
+
+**Making them** (on the VM; the April feature files are rebuilt first because
+`capture_ts_ns` was added in T8; everything else in them is unchanged, and the
+export checks that):
+
+```bash
+python scripts/build_features.py --source box:fin556/silver \
+    --dest /dev/shm/fin556/gold_t8 --from 20250401 --to 20250430 --jobs 4
+python scripts/export_signals.py --gold /dev/shm/fin556/gold_t8 \
+    --train-gold /dev/shm/fin556/gold --e4 results/e4/test.csv \
+    --out /dev/shm/fin556/signals
+rclone copy /dev/shm/fin556/signals box:fin556/signals
+```
+
+After E10, add `--event-gold /dev/shm/fin556/gold_event10` to also write the
+event-time files.
+
 ## Known gaps in real data
 
 - **Blank `side` (and `price` on `EXECUTE`)** when the order was added before
@@ -121,6 +186,7 @@ should keep them when present.
 | Synthetic NVDA, 10 s at 1 ms | `data/synthetic/nvda_messages.parquet`, `nvda_book.parquet`, `nvda_trades.parquet` | `scripts/generate_nvda_synthetic.py` → `python -m streamer.convert` |
 | Real data, parsed (raw parser CSV) | `data/bronze/` | `parser/itch_parser.py` |
 | Real data, in this schema | `data/silver/<symbol>_<date>_<table>.parquet` | `python -m streamer.convert data/bronze --outdir data/silver --prefix nvda_20250203 --trades` |
+| Model signals, test days | Box `fin556/signals/` (never in git) | `scripts/export_signals.py` (see [signals](#signals-for-the-backtest)) |
 
 Regenerate the synthetic files:
 

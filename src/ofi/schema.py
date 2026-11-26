@@ -4,6 +4,7 @@ A features table has one row per observation (a book event, or a point on a
 fixed clock grid), built by ofi.features.build_features:
 
     ts_ns              exchange time of the observation, int ns since epoch UTC
+    capture_ts_ns      when we could have seen the row (capture clock; for the backtest's latency)
     symbol             ticker
     mid, spread        mid-price and spread at t, in dollars (for labels and the backtest)
     bid/ask_px_1, bid/ask_sz_1   best quotes at t (for the backtest)

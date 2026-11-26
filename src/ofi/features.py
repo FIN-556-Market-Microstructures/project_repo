@@ -143,6 +143,13 @@ def build_features(book: pd.DataFrame, trades: Optional[pd.DataFrame] = None, sa
     out: Dict[str, np.ndarray] = {"ts_ns": obs_t}
     if "symbol" in book:
         out["symbol"] = book["symbol"].to_numpy()[obs_i]
+    if "capture_ts_ns" in book:
+        # when we could have known the row: the capture time of the last book
+        # event it uses, shifted to the observation time (clock rows sit after
+        # that event; the feed delay is the same)
+        # integer arithmetic throughout: float64 can't hold ns timestamps exactly
+        cap = pd.array(book["capture_ts_ns"], dtype="Int64")[obs_i]
+        out["capture_ts_ns"] = cap + pd.array(obs_t - ts[obs_i], dtype="Int64")
 
     # --- state at t
     b1, a1 = bpx[1][obs_i], apx[1][obs_i]
@@ -216,7 +223,7 @@ def build_features(book: pd.DataFrame, trades: Optional[pd.DataFrame] = None, sa
 
 def feature_columns(df: pd.DataFrame) -> list:
     """Predictor columns (everything except time, symbol, state-at-t and labels)."""
-    skip = {"ts_ns", "symbol", "mid", "spread", "bid_px_1", "ask_px_1", "bid_sz_1", "ask_sz_1"}
+    skip = {"ts_ns", "capture_ts_ns", "symbol", "mid", "spread", "bid_px_1", "ask_px_1", "bid_sz_1", "ask_sz_1"}
     return [c for c in df.columns if c not in skip and not c.startswith("ret_") and c not in NEXT_COLS]
 
 

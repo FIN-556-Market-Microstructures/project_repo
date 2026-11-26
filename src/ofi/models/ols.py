@@ -45,6 +45,23 @@ class LinearFit:
     def tstat(self) -> Optional[np.ndarray]:
         return None if self.se is None else self.coef / self.se
 
+    def save(self, path) -> None:
+        """Columns, scaler and coefficients as JSON (enough to predict again)."""
+        import json
+        from pathlib import Path
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"kind": "linear", "cols": self.cols, "coef": list(map(float, self.coef)),
+                                    "alpha": self.alpha, "scaler": self.scaler.to_dict(), "meta": self.meta},
+                                   indent=2), encoding="utf-8")
+
+    @classmethod
+    def load(cls, path) -> "LinearFit":
+        import json
+        from pathlib import Path
+        m = json.loads(Path(path).read_text(encoding="utf-8"))
+        return cls(m["cols"], Scaler.from_dict(m["scaler"]), np.array(m["coef"]), m["alpha"], meta=m.get("meta", {}))
+
     def table(self) -> pd.DataFrame:
         names = ["intercept"] + self.cols
         out = pd.DataFrame({"coef": self.coef}, index=names)
