@@ -1,7 +1,7 @@
 # Results
 
 What each experiment found. How each one was run (data, commands) is on the
-[Experiments](experiments.md) page. Model results (E5–E7) will be added here
+[Experiments](experiments.md) page. Model results (E6–E7) will be added here
 as they are completed.
 
 ## Key findings so far
@@ -20,6 +20,9 @@ as they are completed.
 | Prediction: all features | Linear model on all 38 features: April R² **1.2–1.4%** at 10–100 ms, positive on **every** April day; hit rate **66%** at 10 ms, fading to 52% at 5 s | [E4](#e4-linear-ofi-baseline-on-real-nvda) |
 | Tradability (first look) | Predicted moves are ~10× smaller than actual ones and almost never exceed half the spread, so a linear signal alone rarely justifies crossing the spread | [E4](#e4-linear-ofi-baseline-on-real-nvda) |
 | Regime | The edge roughly halves during the 7–10 April tariff shock (R² 0.9% vs 2.2% at 100 ms) but stays positive | [E4](#e4-linear-ofi-baseline-on-real-nvda) |
+| Nonlinear model | LightGBM beats the linear model at every horizon up to 1 s, on **every** April day up to 500 ms: R² **2.1%** vs 1.2% at 10 ms, 1.8% vs 1.4% at 100 ms; hit rate **68%** at 10 ms. No gain at 5 s | [E5](#e5-gradient-boosted-model-vs-linear) |
+| What drives it | **Queue imbalance** at the best quotes carries 34–52% of the model's split gain; OFI features together 20–40%, mostly at the shortest horizons; recent volatility and activity next | [E5](#e5-gradient-boosted-model-vs-linear) |
+| Tradability (GBM) | Still almost no predictions above half the spread (≤ 0.02% of rows): the nonlinear model sharpens direction, not size | [E5](#e5-gradient-boosted-model-vs-linear) |
 
 ---
 
@@ -251,6 +254,97 @@ validation scores, ridge strengths): `results/e4/test.csv`, `valid.csv`.
 **Caveats:** linear models only (T6 tests nonlinear ones); significance of
 the differences between feature sets is tested in T7; R² is pooled over all
 rows, including the many where the price didn't move.
+
+---
+
+## E5: Gradient-boosted model vs. linear
+
+[How it was run](experiments.md#e5-gradient-boosted-model-vs-linear)
+
+Same 38 features, same frozen split and same April rows (4,912,950) as the E4
+`all` model, so the comparison is like for like. LightGBM settings chosen on
+validation only; each horizon early-stopped on validation, then refit on
+train + validation (9.36M rows) and scored once on April. Tuning plus all six
+horizons took about 11 minutes on the VM with 32 threads.
+
+**Tuning** (100 ms, every 5th training row, validation R²): all 8 settings
+land between 2.45% and 2.50%. Large minimum leaf size (5,000 rows) helps a
+little; the number of leaves and the L2 penalty hardly matter. Chosen: 127
+leaves, 5,000 rows per leaf, no L2. Models stop early (14–154 rounds at
+learning rate 0.05): the signal is simple enough that extra trees only fit
+noise.
+
+**April test: LightGBM vs linear (E4, all features)**
+
+| Horizon | GBM R² | Linear R² | GBM R² (day mean) | Days GBM > linear | GBM hit rate | Linear hit rate | GBM hit, moves > ½ spread |
+|---|---|---|---|---|---|---|---|
+| 10 ms | **2.09%** | 1.17% | 2.15% | **21/21** | **68.1%** | 66.2% | 73.3% |
+| 50 ms | **2.05%** | 1.42% | 2.56% | **21/21** | 64.4% | 63.2% | 67.6% |
+| 100 ms | **1.82%** | 1.37% | 2.54% | **21/21** | 62.5% | 61.6% | 65.0% |
+| 500 ms | 0.77% | 0.66% | 1.38% | 21/21 | 57.3% | 57.0% | 58.2% |
+| 1 s | 0.41% | 0.35% | 0.78% | 20/21 | 55.2% | 55.0% | 55.7% |
+| 5 s | 0.06% | 0.06% | 0.12% | 8/21 | 52.1% | 52.0% | 52.2% |
+
+GBM R² is positive on every April day at every horizon except 5 s (19/21).
+Validation R² (late March) of the same models: 1.90%, 2.51%, 2.62%, 1.48%,
+0.84%, 0.09%, so April holds up close to validation, as it did for E4.
+
+**Tariff shock vs the rest of April** (mean of daily R²):
+
+| Horizon | 7–10 Apr: GBM / linear | Rest of April: GBM / linear | GBM hit rate, shock / rest |
+|---|---|---|---|
+| 10 ms | 2.03% / 1.11% | 2.18% / 1.30% | 64.1% / 72.5% |
+| 100 ms | 1.25% / 0.89% | 2.84% / 2.24% | 57.7% / 65.9% |
+| 1 s | 0.15% / 0.12% | 0.93% / 0.81% | 51.9% / 56.4% |
+
+**Feature importance** (share of total split gain; SHAP on 200,000 April rows
+gives the same ranking at the top):
+
+| Horizon | Top features | All OFI features together |
+|---|---|---|
+| 10 ms | `queue_imb` 34%, `ofi_l1_10ms` 14%, `vol_5s` 7%, `ofi_ml_10ms` 5%, `n_events_1s` 4% | 40% |
+| 100 ms | `queue_imb` 49%, `vol_5s` 6%, `ofi_l1_100ms` 4%, `n_events_1s` 4%, `tod_min` 2% | 27% |
+| 1 s | `queue_imb` 46%, `vol_5s` 6%, `tod_min` 5%, `ofi_l1_100ms` 4%, `n_events_1s` 4% | 25% |
+| 5 s | `queue_imb` 26%, `tod_min` 17%, `vol_5s` 13%, `signed_vol_5s` 6%, `n_trades_5s` 5% | 20% |
+
+Full tables: `results/e5/test.csv`, `test_by_day.csv`, `importance.csv`,
+`tuning.csv`.
+
+**Interpretation**
+
+- **Nonlinearity adds real predictive power at short horizons.** LightGBM
+  raises April R² by about 80% at 10 ms (2.1% vs 1.2%) and by 33–44%
+  at 50–100 ms, and beats the linear model on every single April day up to
+  500 ms. That consistency matters more than the pooled numbers: T7 will
+  test it formally (Diebold-Mariano), but 21 wins out of 21 days is already
+  hard to get by chance.
+- **The gain shrinks with the horizon and is gone at 5 s,** where neither
+  model has much to say (R² 0.06%) and GBM wins on only 8 of 21 days.
+- **Queue imbalance is the dominant predictor, not OFI.** The imbalance
+  between bid and ask size at the best quotes carries a third to a half of
+  all split gain. OFI still matters, most at 10 ms (40% of gain, led by the
+  10 ms level-1 window), less beyond. This answers E4's open question: the
+  jump from "all OFI" to "all features" comes mainly from queue imbalance.
+  It fits the microstructure literature: a thin queue on one side is likely
+  to be depleted, moving the mid toward it.
+- **Volatility and activity shape the signal.** `vol_5s`, `n_events_1s` and
+  time of day rank high although they carry no direction themselves: they
+  tell the trees how big a move to expect from a given imbalance. That
+  interaction is exactly what a linear model can't express, and most likely
+  where GBM's gain comes from.
+- **Same regime pattern as E4.** The tariff shock days are harder for both
+  models, but GBM keeps its lead there (2.0% vs 1.1% at 10 ms).
+- **Still not a spread-crossing signal.** At 100 ms GBM's predictions vary
+  about a third more than the linear model's but still ~7× less than actual
+  moves;
+  under 0.02% of rows have a predicted move above half the spread, and those
+  few are right only about half the time. The better direction calls (68% at
+  10 ms) are what a liquidity-providing strategy could use; that is the
+  backtest's (E7) question.
+
+**Caveats:** one tuning horizon (100 ms) for all horizons; a small grid
+(tuning made little difference, so a larger one is unlikely to change the
+picture); statistical tests of GBM vs linear come in T7.
 
 ---
 

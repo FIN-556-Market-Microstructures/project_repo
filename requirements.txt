@@ -3,6 +3,7 @@ numpy
 pandas
 pyarrow
 statsmodels
+lightgbm>=4        # T6 gradient-boosted model
 pytest
 zstandard        # ITCH parser: reads .pcap.zst
 tzdata           # Windows only: time zone data for zoneinfo
