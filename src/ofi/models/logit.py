@@ -60,16 +60,13 @@ class LogitFit:
     def save(self, path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        sc = self.scaler
-        path.write_text(json.dumps({"cols": self.cols, "coef": list(map(float, self.coef)), "alpha": self.alpha,
-                                    "scaler": {"clip": sc.clip, "lo": sc.lo, "hi": sc.hi, "mean": sc.mean,
-                                               "std": sc.std}}, indent=2), encoding="utf-8")
+        path.write_text(json.dumps({"kind": "logit", "cols": self.cols, "coef": list(map(float, self.coef)),
+                                    "alpha": self.alpha, "scaler": self.scaler.to_dict()}, indent=2), encoding="utf-8")
 
     @classmethod
     def load(cls, path) -> "LogitFit":
         m = json.loads(Path(path).read_text(encoding="utf-8"))
-        s = m["scaler"]
-        return cls(m["cols"], Scaler(s["clip"], s["lo"], s["hi"], s["mean"], s["std"]), np.array(m["coef"]), m["alpha"])
+        return cls(m["cols"], Scaler.from_dict(m["scaler"]), np.array(m["coef"]), m["alpha"])
 
 
 def fit_logit(X: pd.DataFrame, y, alpha: float = 0.0, scaler: Optional[Scaler] = None) -> LogitFit:

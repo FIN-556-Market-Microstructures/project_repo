@@ -200,6 +200,13 @@ class Scaler:
     def fit_transform(self, X: pd.DataFrame) -> pd.DataFrame:
         return self.fit(X).transform(X)
 
+    def to_dict(self) -> dict:
+        return {"clip": self.clip, "lo": self.lo, "hi": self.hi, "mean": self.mean, "std": self.std}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Scaler":
+        return cls(d["clip"], dict(d["lo"]), dict(d["hi"]), dict(d["mean"]), dict(d["std"]))
+
 
 # --------------------------------------------------------------------------- CLI
 

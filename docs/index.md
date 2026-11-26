@@ -23,6 +23,7 @@ slippage and latency? Finding that it does not is also a valid result.
 | Models | Gradient-boosted model (LightGBM) | :white_check_mark: Done: beats linear up to 1 s, April R² 2.1% at 10 ms; queue imbalance is the top feature ([E5](results.md#e5-gradient-boosted-model-vs-linear)) |
 | Models | Evaluation and robustness | :white_check_mark: Done: GBM's edge significant up to 1 s, holds on 20–21 of 21 days and in every regime; strongest at a 1-tick spread ([E6](results.md#e6-evaluation-and-robustness)) |
 | Models | Direction of the next price move at book events (probability; T7b) | :hourglass: Code ready, run pending ([E10](experiments.md#e10-direction-of-the-next-price-move-event-time)) |
+| Hand-off | Signal files for the backtest: predictions per test day + `models.json` (T8) | :hourglass: Code ready, export pending ([signals](schema.md#signals-for-the-backtest)) |
 | Costs | Spread, fees, slippage, latency evaluation | :white_circle: Not started (sense check: confident predictions average under half the spread, [E6](results.md#5-economic-sense-check-not-a-backtest)) |
 
 ## Where to read
