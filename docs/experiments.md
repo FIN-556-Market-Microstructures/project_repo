@@ -179,9 +179,55 @@ python scripts/run_gbm.py --gold /dev/shm/fin556/gold --out results/e5 \
 
 ## E6: Evaluation and robustness
 
-- **Question:** Is the edge statistically significant (Diebold-Mariano,
-  day-level bootstrap) and stable across days, time of day, spread,
-  volatility and activity?
+- **Question:** Is the GBM's edge over the linear model statistically
+  significant, and does it hold across days, times of day and market
+  conditions? Is there anything big enough to trade?
+- **Data:** the two final models from E4 (linear, all 38 features; refit
+  here with E4's ridge strength) and E5 (LightGBM, loaded from `models/`),
+  scored on the April test days (4.91M rows).
+- **Spec** (`scripts/run_robustness.py`, `src/ofi/robustness.py`, ticket T7):
+    1. **Significance**, per horizon:
+        - Diebold-Mariano test on squared errors, with a Newey-West variance
+          over rows (lags = 50 + horizon / 100 ms, as in E4)
+        - the same comparison per day, as a t-test across the 21 days
+        - 95% confidence intervals for both R² and their difference,
+          resampling whole days (2,000 bootstrap draws)
+    2. **Stability:** R² of both models on every test day.
+    3. **Regimes:**
+        - time of day: first 30 min, midday, last 30 min
+        - spread: 1 tick vs wider
+        - volatility and activity: terciles of `vol_1s` and `n_events_1s`,
+          with cut points from the training days
+    4. **Sensitivity:**
+        - dropping the first and last 5 minutes (both models as fitted, and
+          the linear model refit without them)
+        - OFI windows: the linear model with no OFI, or with OFI from one
+          window only; LightGBM refit without any OFI (10 and 100 ms)
+        - event-time vs clock-time sampling: the linear model fit on 4 late
+          March days and tested on 4 April days (22–25 Apr), sampled both ways
+          (every 10th book event)
+    5. **Economic sense check (not a backtest):** for the top 10%, 1% and
+       0.1% most confident predictions, and for those above half the spread:
+       hit rate, and the average realised move in the predicted direction
+       relative to half the spread.
+- **Commands:**
+
+```bash
+# event-sampled features for the 8 sensitivity days (RAM, a few GB)
+python scripts/build_features.py --source box:fin556/silver \
+    --dest /dev/shm/fin556/gold_event --sample event --jobs 4 \
+    --dates 20250325 20250326 20250327 20250328 20250422 20250423 20250424 20250425
+python scripts/run_robustness.py --gold /dev/shm/fin556/gold --out results/e6 \
+    --e4 results/e4/test.csv --threads 32 \
+    --event-gold /dev/shm/fin556/gold_event \
+    --event-fit 20250325,20250326,20250327,20250328 \
+    --event-test 20250422,20250423,20250424,20250425 2>&1 | tee e6.log
+```
+
+- **Expected:** E5's 21-out-of-21 daily wins suggest the GBM's edge is
+  significant up to 500 ms; the edge should be weaker at the open and in the
+  tariff regime, and almost no predictions should be big enough to pay the
+  spread.
 - **Results:** —
 
 ---
