@@ -15,7 +15,7 @@ row to the index.
 | E4 | [Linear OFI baseline on real NVDA](#e4-linear-ofi-baseline-on-real-nvda) | :white_check_mark: Done | [E4](results.md#e4-linear-ofi-baseline-on-real-nvda) |
 | E5 | [Gradient-boosted model vs. linear](#e5-gradient-boosted-model-vs-linear) | :white_check_mark: Done | [E5](results.md#e5-gradient-boosted-model-vs-linear) |
 | E6 | [Evaluation and robustness](#e6-evaluation-and-robustness) | :white_check_mark: Done | [E6](results.md#e6-evaluation-and-robustness) |
-| E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :hourglass: In progress (T9): step 0, E7a, E7b done; E7c next | [E7](results.md#e7-backtest) |
+| E7 | [Trading costs and latency (backtest)](#e7-trading-costs-and-latency-backtest) | :white_check_mark: Done for the 100 ms signals (E7a–c); event-time version after E10 | [E7](results.md#e7-backtest) |
 | E8 | [C++ vs Python ITCH parser](#e8-c-vs-python-itch-parser) | :white_check_mark: Done | [E8](results.md#e8-c-vs-python-itch-parser) |
 | E9 | [Features on real data: build and sanity check](#e9-features-on-real-data-build-and-sanity-check) | :white_check_mark: Done | [E9](results.md#e9-features-on-real-data-build-and-sanity-check) |
 | E10 | [Direction of the next price move (event time)](#e10-direction-of-the-next-price-move-event-time) | :hourglass: Code ready (T7b), not yet run | — |
@@ -332,7 +332,36 @@ python scripts/check_simulator.py --messages /dev/shm/fin556/silver_msgs \
     --book /dev/shm/fin556/silver_book --out results/e7b 2>&1 | tee e7b.log
 ```
 
-- **Results:** [Results → E7](results.md#e7-backtest) (step 0, E7a, E7b)
+- **E7c: quoting with vs without the signal** (`src/backtest/quoting.py`,
+  `scripts/run_quoting.py`). At every 100 ms row, for each side, keep a
+  100-share order at the current best price; an order at the right price is
+  left alone (keeps its queue place), otherwise cancelled and re-posted;
+  after a fill the side is re-posted at the next row; inventory limit ±500;
+  quoting stops at 15:59 and any position is closed by crossing the spread.
+    - **S0:** always quote both sides.
+    - **S1 (model, horizon, w):** withdraw the offer when the forecast is in
+      the top w of |forecast| and positive (price about to rise), the bid
+      when it is in the top w and negative. Models linear / LightGBM,
+      horizons 10 / 100 ms, w ∈ {50%, 25%, 10%, 1%}; cut-offs from March.
+    - Fills from the E7b simulator; $0.0020 rebate per filled share; $0.0030
+      fee on the closing trade; decisions at capture time + 20 µs, orders and
+      cancels arrive 85 µs later; the strategy knows its fills up to the
+      row's time.
+    - **Choice and test:** each model's best S1 chosen on March (mean daily
+      net); April run once. **The signal's value = S1 − S0 per April day**,
+      with a t-test across days, share of days better and a day-bootstrap
+      interval; markouts; tariff week vs the rest.
+    - **Sensitivity** (S0 and the chosen S1s): order delay 0 / 500 µs; the
+      pessimistic rule (fills only when the market trades through our price);
+      rebate $0 / $0.0020 / $0.0032.
+
+```bash
+python scripts/run_quoting.py --signals-valid /dev/shm/fin556/signals_valid \
+    --signals /dev/shm/fin556/signals --messages /dev/shm/fin556/silver_msgs \
+    --book /dev/shm/fin556/silver_book --out results/e7c --jobs 6 2>&1 | tee e7c.log
+```
+
+- **Results:** [Results → E7](results.md#e7-backtest) (step 0, E7a, E7b, E7c)
 
 ---
 
