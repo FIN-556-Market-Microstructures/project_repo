@@ -149,3 +149,16 @@ def test_check_simulator_runs_on_synthetic_day(tmp_path):
     o = pd.read_parquet(out / "orders.parquet")
     assert 0 < o["full"].mean() < 1
     assert "Invariants" in (out / "summary.md").read_text(encoding="utf-8")
+
+
+def test_fill_demo_replays_match_the_simulator(tmp_path):
+    """The docs demo is built by a separate, simple FIFO replay; the script fails
+    unless every scenario gives the same queue at entry and the same fills as
+    simulate_order."""
+    import subprocess
+    import sys
+    out = tmp_path / "demo.js"
+    res = subprocess.run([sys.executable, str(ROOT / "scripts" / "make_fill_demo.py"), "--out", str(out)],
+                         capture_output=True, text=True)
+    assert res.returncode == 0, res.stdout[-2000:] + res.stderr[-2000:]
+    assert "every one matches" in res.stdout and out.read_text(encoding="utf-8").startswith("// generated")
