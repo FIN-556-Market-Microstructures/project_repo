@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fill simulator, step by step</title>
+<style>
+  :root {
+    --ink: #1d2433; --muted: #5d6779; --line: #e3e7ee; --panel: #f7f9fc;
+    --ours: #2f6fed; --ahead: #8d97a7; --behind: #d5dbe4; --bid: #1a8f5a; --ask: #c8463d;
+    --fill: #1a9e5c; --through: #d9822b; --violation: #8a5cd1; --cancel: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: #fff; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 14px 16px 24px; }
+  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  select, button { font: inherit; }
+  select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; min-width: 300px; }
+  .about { color: var(--muted); margin: 8px 0 12px; }
+  .grid { display: grid; grid-template-columns: 290px 1fr; gap: 14px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .panel h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  /* ladder */
+  .lrow { display: grid; grid-template-columns: 64px 1fr 52px; align-items: center; gap: 8px; height: 24px; padding: 0 4px; border-radius: 4px; }
+  .lrow .px { font-variant-numeric: tabular-nums; text-align: right; }
+  .lrow .sz { font-variant-numeric: tabular-nums; text-align: right; color: var(--muted); font-size: 12px; }
+  .bar { height: 12px; border-radius: 3px; }
+  .lrow.ask .bar { background: color-mix(in srgb, var(--ask) 55%, white); }
+  .lrow.bid .bar { background: color-mix(in srgb, var(--bid) 55%, white); }
+  .lrow.mine { outline: 2px solid var(--ours); background: #fff; }
+  .lrow .tag { grid-column: 1 / -1; }
+  .spread { text-align: center; color: var(--muted); font-size: 12px; margin: 4px 0; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); padding: 2px 0; }
+  .marker { color: var(--ours); font-weight: 600; font-size: 12px; margin-left: 6px; }
+  /* counters */
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .stat { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-width: 130px; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .stat .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #fff; }
+  /* queue */
+  .lane-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .lane { display: flex; gap: 2px; align-items: stretch; height: 46px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 4px; overflow: hidden; }
+  .blk { border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; white-space: nowrap; overflow: hidden; transition: flex-basis .25s ease; min-width: 3px; }
+  .blk.ahead { background: var(--ahead); }
+  .blk.behind { background: var(--behind); color: var(--ink); }
+  .blk.ours { background: var(--ours); font-weight: 700; box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--ours); }
+  .blk.flash { animation: flash .6s ease; }
+  @keyframes flash { 0% { filter: brightness(1.6); } 100% { filter: none; } }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; flex-wrap: wrap; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .note { margin-top: 12px; background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: 8px; padding: 10px 12px; min-height: 64px; }
+  .note .when { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+  /* controls */
+  .controls { display: flex; gap: 6px; align-items: center; margin: 12px 0 8px; flex-wrap: wrap; }
+  .controls button { padding: 6px 12px; border: 1px solid var(--line); background: #fff; border-radius: 6px; cursor: pointer; }
+  .controls button.primary { background: var(--ours); color: #fff; border-color: var(--ours); min-width: 84px; }
+  .controls button:disabled { opacity: .45; cursor: default; }
+  .controls .pos { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+  /* log */
+  .log { position: relative; max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  .log div { padding: 5px 10px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; grid-template-columns: 74px 92px 1fr; gap: 8px; font-size: 13px; }
+  .log div:last-child { border-bottom: 0; }
+  .log div.cur { background: #eef3ff; }
+  .log div.future { color: #b3bac6; }
+  .badge { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 1px 6px; color: #fff; justify-self: start; }
+  .t { font-variant-numeric: tabular-nums; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <label for="sc"><strong>Scenario</strong></label>
+    <select id="sc" aria-label="Choose a scenario"></select>
+  </header>
+  <p class="about" id="about"></p>
+
+  <div class="grid">
+    <div class="panel">
+      <h3>Order book (top 5)</h3>
+      <div id="asks"></div>
+      <div class="spread" id="spread"></div>
+      <div id="bids"></div>
+    </div>
+    <div class="panel">
+      <h3>Our order</h3>
+      <div class="stats">
+        <div class="stat"><div class="k">Shares ahead of us</div><div class="v" id="ahead">–</div></div>
+        <div class="stat"><div class="k">Filled</div><div class="v" id="filled">0 / 100</div></div>
+        <div class="stat"><div class="k">Status</div><div class="v"><span class="pill" id="status">–</span></div></div>
+      </div>
+      <h3 id="laneTitle">Queue at our price</h3>
+      <div class="lane-head"><span>◀ front: trades first</span><span>back: joins last ▶</span></div>
+      <div class="lane" id="lane" aria-label="Queue of orders at our price"></div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--ahead)"></span>ahead of us</span>
+        <span><span class="sw" style="background:var(--ours)"></span>our order</span>
+        <span><span class="sw" style="background:var(--behind)"></span>joined after us</span>
+        <span>block width = shares</span>
+      </div>
+      <div class="note" id="note"><div class="when" id="when"></div><div id="text"></div></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="restart" aria-label="Back to the start">⏮</button>
+    <button id="prev" aria-label="Previous event">◀ Prev</button>
+    <button id="play" class="primary" aria-label="Play or pause">▶ Play</button>
+    <button id="next" aria-label="Next event">Next ▶</button>
+    <label style="margin-left:8px;color:var(--muted)">Speed
+      <select id="speed" style="min-width:auto">
+        <option value="1800">slow</option><option value="1100" selected>normal</option><option value="500">fast</option>
+      </select></label>
+    <span class="pos" id="pos"></span>
+  </div>
+  <div class="log" id="log" aria-label="All events"></div>
+</div>
+
+<script src="fill-demo-data.js"></script>
+<script>
+(function () {
+  const S = (window.FILL_DEMO || { scenarios: [] }).scenarios;
+  const KIND = {
+    arrive: ["we arrive", "var(--ours)"], add: ["joins behind", "var(--ahead)"],
+    exec_ahead: ["trade ahead", "var(--ahead)"], cancel_ahead: ["cancel ahead", "var(--ahead)"],
+    cancel_behind: ["cancel behind", "#9aa3b2"], replace: ["replace", "var(--ahead)"],
+    fill: ["WE FILL", "var(--fill)"], through: ["TRADE-THROUGH", "var(--through)"],
+    violation: ["out of order", "var(--violation)"], cancel: ["our cancel", "var(--cancel)"]
+  };
+  const $ = (id) => document.getElementById(id);
+  let sc = 0, i = 0, timer = null;
+
+  S.forEach((s, k) => { const o = document.createElement("option"); o.value = k; o.textContent = s.name; $("sc").appendChild(o); });
+
+  function ladderRows(rows, side, mine) {
+    const max = Math.max(1, ...S[sc].steps[i].bids.map(r => r.size), ...S[sc].steps[i].asks.map(r => r.size));
+    const ordered = side === "ask" ? rows.slice().reverse() : rows;
+    return ordered.map(r => {
+      const isMine = mine && Math.abs(r.price - S[sc].price) < 1e-9;
+      return `<div class="lrow ${side}${isMine ? " mine" : ""}"><span class="px">${r.price.toFixed(2)}</span>` +
+             `<span class="bar" style="width:${Math.max(2, 100 * r.size / max)}%"></span>` +
+             `<span class="sz">${r.size.toLocaleString()}</span></div>` +
+             (isMine ? `<div class="marker">▲ our ${S[sc].side} rests here</div>` : "");
+    }).join("") || `<div class="lrow"><span></span><span style="color:var(--muted)">(empty)</span><span></span></div>`;
+  }
+
+  function render(flash) {
+    const s = S[sc], st = s.steps[i], live = st.queue.some(q => q.who === "ours");
+    $("about").textContent = s.about;
+    $("asks").innerHTML = ladderRows(st.asks, "ask", s.side === "ask");
+    $("bids").innerHTML = ladderRows(st.bids, "bid", s.side === "bid");
+    const ba = st.asks[0], bb = st.bids[0];
+    $("spread").textContent = ba && bb ? `spread ${((ba.price - bb.price) * 100).toFixed(0)} tick(s)` : "";
+    $("ahead").textContent = live ? st.ahead.toLocaleString() : "–";
+    $("filled").textContent = `${st.filled} / 100`;
+    const status = st.filled >= 100 ? ["Filled", "var(--fill)"] : st.kind === "cancel" ? ["Cancelled", "var(--cancel)"]
+                 : st.filled > 0 ? ["Part filled", "var(--through)"] : ["Resting", "var(--ours)"];
+    $("status").textContent = status[0]; $("status").style.background = status[1];
+    const total = st.queue.reduce((a, q) => a + q.size, 0) || 1;
+    $("laneTitle").textContent = live ? `Queue at our price (${s.price.toFixed(2)})` : `Queue at ${s.price.toFixed(2)} (our order has left)`;
+    $("lane").innerHTML = st.queue.map(q => {
+      const cls = q.who === "ours" ? "ours" : (live ? q.who : "behind");
+      const label = q.who === "ours" ? `US ${q.size}` : q.size;
+      return `<div class="blk ${cls}${flash && q.who === "ours" ? " flash" : ""}" style="flex:${q.size} 1 0" title="${q.who === "ours" ? "our order" : "order #" + q.id}: ${q.size} shares">${label}</div>`;
+    }).join("") || `<span style="color:var(--muted);padding:10px">no orders at this price</span>`;
+    const [kname, kcol] = KIND[st.kind] || [st.kind, "var(--muted)"];
+    $("note").style.borderLeftColor = kcol;
+    $("when").textContent = `${st.t_ms >= 0 ? "+" : ""}${st.t_ms.toFixed(st.t_ms % 1 ? 3 : 0)} ms after our order arrived · ${kname}`;
+    $("text").textContent = st.note;
+    $("pos").textContent = `event ${i + 1} of ${s.steps.length}`;
+    $("prev").disabled = i === 0; $("restart").disabled = i === 0; $("next").disabled = i === s.steps.length - 1;
+    [...$("log").children].forEach((d, k) => { d.className = k === i ? "cur" : k > i ? "future" : ""; });
+    const L = $("log"), cur = L.children[i];          // scroll the list only, never the page
+    if (cur) {
+      if (cur.offsetTop < L.scrollTop) L.scrollTop = cur.offsetTop;
+      else if (cur.offsetTop + cur.offsetHeight > L.scrollTop + L.clientHeight)
+        L.scrollTop = cur.offsetTop + cur.offsetHeight - L.clientHeight;
+    }
+  }
+
+  function buildLog() {
+    $("log").innerHTML = S[sc].steps.map((st, k) => {
+      const [kname, kcol] = KIND[st.kind] || [st.kind, "var(--muted)"];
+      return `<div data-k="${k}"><span class="t">+${st.t_ms.toFixed(st.t_ms % 1 ? 1 : 0)} ms</span>` +
+             `<span class="badge" style="background:${kcol}">${kname}</span><span>${st.note}</span></div>`;
+    }).join("");
+    [...$("log").children].forEach(d => d.addEventListener("click", () => { stop(); i = +d.dataset.k; render(false); }));
+  }
+
+  function go(k) { const n = S[sc].steps.length; const j = Math.max(0, Math.min(n - 1, k));
+    const fl = S[sc].steps[j].fill > 0 && j > i; i = j; render(fl); }
+  function stop() { clearInterval(timer); timer = null; $("play").textContent = "▶ Play"; }
+  function play() {
+    if (timer) return stop();
+    if (i >= S[sc].steps.length - 1) i = 0, render(false);
+    $("play").textContent = "⏸ Pause";
+    timer = setInterval(() => { if (i >= S[sc].steps.length - 1) return stop(); go(i + 1); }, +$("speed").value);
+  }
+
+  $("sc").addEventListener("change", e => { stop(); sc = +e.target.value; i = 0; buildLog(); render(false); });
+  $("next").addEventListener("click", () => { stop(); go(i + 1); });
+  $("prev").addEventListener("click", () => { stop(); go(i - 1); });
+  $("restart").addEventListener("click", () => { stop(); go(0); });
+  $("play").addEventListener("click", play);
+  $("speed").addEventListener("change", () => { if (timer) { stop(); play(); } });
+  document.addEventListener("keydown", e => {
+    if (e.target.tagName === "SELECT") return;
+    if (e.key === "ArrowRight") { stop(); go(i + 1); } else if (e.key === "ArrowLeft") { stop(); go(i - 1); }
+    else if (e.key === " ") { e.preventDefault(); play(); }
+  });
+
+  if (!S.length) { document.body.innerHTML = "<p style='padding:20px'>Demo data missing: run scripts/make_fill_demo.py</p>"; return; }
+  // open at a given scenario / event: fill-demo.html#s=2&i=3
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.has("s")) { sc = Math.max(0, Math.min(S.length - 1, +h.get("s") || 0)); $("sc").value = sc; }
+  buildLog();
+  if (h.has("i")) i = Math.max(0, Math.min(S[sc].steps.length - 1, +h.get("i") || 0));
+  render(false);
+})();
+</script>
+</body>
+</html>

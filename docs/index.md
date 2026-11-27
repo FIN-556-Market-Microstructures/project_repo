@@ -31,6 +31,8 @@ slippage and latency? Finding that it does not is also a valid result.
 
 | Page | What it covers |
 |---|---|
+| [Project summary](summary.md) | The whole project on one page: data → features → models → backtest → what we learned |
+| [Fill simulator demo](fill-demo.md) | Interactive: watch an order move through the queue and get filled |
 | [Project guide](PROJECT_GUIDE.md) | Repository layout, pipeline stages, how to run things |
 | [Run on a new machine](new-machine.md) | Box access, rclone, and running the experiments outside the course VM |
 | [Shared schema](schema.md) | The three tables every stage reads and writes: messages, book, trades |
